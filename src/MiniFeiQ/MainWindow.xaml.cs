@@ -1,98 +1,120 @@
 using System.Collections.ObjectModel;
 using System.Net;
-using System.Net.Sockets;
-using System.Text;
 using System.Windows;
+using MiniFeiQ.Services;
+using MiniFeiQ.Transport;
 
 namespace MiniFeiQ;
 
-public class User
-{
-    public string Name { get; set; }
-    public IPAddress Ip { get; set; }
-    public override string ToString() => $"{Name} ({Ip})";
-}
-
 public partial class MainWindow : Window
 {
-    const int Port = 2425;
-    const int BR_ENTRY = 1, ANSENTRY = 3, SENDMSG = 0x20, RECVMSG = 0x21;
-    const int SENDCHECKOPT = 0x100;
-
-    static readonly Encoding Gbk = CreateGbk(); // 飞秋在中文 Windows 上用 GBK
-
-    static Encoding CreateGbk()
-    {
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        return Encoding.GetEncoding("GBK");
-    }
-    readonly UdpClient _udp;
-    readonly ObservableCollection<User> _users = new();
-    readonly string _me = Environment.UserName, _host = Environment.MachineName;
-    long _no = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    private readonly ObservableCollection<Peer> _users = new();
+    private IpMsgService? _service;
 
     public MainWindow()
     {
         InitializeComponent();
         UserList.ItemsSource = _users;
-
-        _udp = new UdpClient(AddressFamily.InterNetwork) { EnableBroadcast = true };
-        _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-        _udp.Client.Bind(new IPEndPoint(IPAddress.Any, Port));
-
-        _ = ReceiveLoop();
-        Announce(IPAddress.Broadcast);
+        Loaded += OnLoaded;
     }
 
-    // 报文格式  版本:包编号:发送者:主机名:命令字:附加信息
-    void Send(IPAddress ip, int cmd, string extra)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        string head = $"1:{++_no}:{_me}:{_host}:{cmd}:";
-        byte[] data = Gbk.GetBytes(head + extra);
-        _udp.Send(data, data.Length, new IPEndPoint(ip, Port));
-    }
+        // ========== 传输层在这里切换 ==========
+        // 当前使用 UDP（飞秋2013 兼容）
+        // 以后要加 WebSocket / TCP / KCP，只需实现 ITransport 然后在这里替换即可
+        ITransport transport = new UdpTransport(port: 2425);
 
-    void Announce(IPAddress to) => Send(to, BR_ENTRY, _me); // 上线广播，附加信息为昵称
+        // 示例：以后可以这样切换
+        // ITransport transport = new WebSocketTransport("ws://...");
+        // ITransport transport = new KcpTransport(...);
+        // ITransport transport = new TcpTransport(...);
 
-    async Task ReceiveLoop()
-    {
-        while (true)
+        _service = new IpMsgService(transport);
+        _service.PeerOnline += OnPeerOnline;
+        _service.PeerOffline += OnPeerOffline;
+        _service.MessageReceived += OnMessageReceived;
+
+        try
         {
-            UdpReceiveResult r;
-            try { r = await _udp.ReceiveAsync(); } catch { return; }
-
-            string text = Gbk.GetString(r.Buffer);
-            string[] f = text.Split(':', 6);
-            if (f.Length < 6 || !int.TryParse(f[4], out int raw)) continue;
-
-            int cmd = raw & 0xFF;
-            string extra = f[5].Split('\0')[0];
-            var ip = r.RemoteEndPoint.Address;
-
-            if (cmd == BR_ENTRY || cmd == ANSENTRY)
-            {
-                if (!_users.Any(u => u.Ip.Equals(ip)) && !IsLocal(ip))
-                    _users.Add(new User { Name = string.IsNullOrEmpty(extra) ? f[2] : extra, Ip = ip });
-                if (cmd == BR_ENTRY) Send(ip, ANSENTRY, _me); // 回应对方，让对方也能发现我们
-            }
-            else if (cmd == SENDMSG)
-            {
-                if ((raw & SENDCHECKOPT) != 0) Send(ip, RECVMSG, f[1]); // 回执
-                Log.AppendText($"[{f[2]}@{ip}] {extra}\n");
-            }
+            await _service.StartAsync();
+            AppendLog("[系统] 已启动，使用 UDP 传输层（兼容飞秋2013）");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[错误] 启动失败: {ex.Message}");
+            MessageBox.Show($"启动失败，请检查防火墙是否放行 2425 端口。\n\n{ex.Message}",
+                "MiniFeiQ", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
-    static bool IsLocal(IPAddress ip) =>
-        Dns.GetHostAddresses(Dns.GetHostName()).Any(a => a.Equals(ip));
-
-    void Refresh_Click(object s, RoutedEventArgs e) { _users.Clear(); Announce(IPAddress.Broadcast); }
-
-    void Send_Click(object s, RoutedEventArgs e)
+    private void OnPeerOnline(Peer peer)
     {
-        if (UserList.SelectedItem is not User u || string.IsNullOrWhiteSpace(Input.Text)) return;
-        Send(u.Ip, SENDMSG | SENDCHECKOPT, Input.Text + "\0");
-        Log.AppendText($"[我 -> {u.Name}] {Input.Text}\n");
-        Input.Clear();
+        Dispatcher.Invoke(() =>
+        {
+            if (_users.All(u => !u.Ip.Equals(peer.Ip)))
+                _users.Add(peer);
+            AppendLog($"[上线] {peer.Name} ({peer.Ip})");
+        });
+    }
+
+    private void OnPeerOffline(Peer peer)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            var exist = _users.FirstOrDefault(u => u.Ip.Equals(peer.Ip));
+            if (exist != null) _users.Remove(exist);
+            AppendLog($"[下线] {peer.Name} ({peer.Ip})");
+        });
+    }
+
+    private void OnMessageReceived(Peer peer, string text)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            AppendLog($"[{peer.Name}@{peer.Ip}] {text}");
+        });
+    }
+
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        if (_service == null) return;
+        _users.Clear();
+        await _service.RefreshAsync();
+        AppendLog("[系统] 已刷新在线列表");
+    }
+
+    private async void Send_Click(object sender, RoutedEventArgs e)
+    {
+        if (_service == null) return;
+        if (UserList.SelectedItem is not Peer peer) return;
+        var text = Input.Text?.Trim();
+        if (string.IsNullOrEmpty(text)) return;
+
+        try
+        {
+            await _service.SendTextAsync(peer.Ip, text);
+            AppendLog($"[我 -> {peer.Name}] {text}");
+            Input.Clear();
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[发送失败] {ex.Message}");
+        }
+    }
+
+    private async void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_service != null)
+        {
+            await _service.DisposeAsync();
+            _service = null;
+        }
+    }
+
+    private void AppendLog(string line)
+    {
+        Log.AppendText($"{DateTime.Now:HH:mm:ss} {line}\n");
+        Log.ScrollToEnd();
     }
 }
