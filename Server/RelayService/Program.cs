@@ -37,6 +37,7 @@ app.Map("/ws", async context =>
     }
 
     var clientId = context.Request.Headers["X-Client-Id"].FirstOrDefault()
+                   ?? context.Request.Query["clientId"].FirstOrDefault()
                    ?? Guid.NewGuid().ToString("N")[..8];
 
     var ws = await context.WebSockets.AcceptWebSocketAsync();
