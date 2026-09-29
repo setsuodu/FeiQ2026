@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "RelayServer": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:65238;http://localhost:65239"
+    }
+  }
+}
