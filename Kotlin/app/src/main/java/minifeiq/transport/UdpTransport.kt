@@ -47,7 +47,11 @@ class UdpTransport(private val port: Int = 2425) : Transport {
     override suspend fun send(data: ByteArray, remote: InetSocketAddress) {
         val s = socket ?: error("Transport not started")
         withContext(Dispatchers.IO) {
-            val packet = DatagramPacket(data, data.size, remote.address, if (remote.port > 0) remote.port else port)
+            val packet = DatagramPacket(
+                data, data.size,
+                remote.address,
+                if (remote.port > 0) remote.port else port
+            )
             s.send(packet)
         }
     }
@@ -55,14 +59,21 @@ class UdpTransport(private val port: Int = 2425) : Transport {
     override suspend fun broadcast(data: ByteArray, port: Int) {
         val s = socket ?: error("Transport not started")
         withContext(Dispatchers.IO) {
-            val packet = DatagramPacket(data, data.size, InetAddress.getByName("255.255.255.255"), port)
+            val packet = DatagramPacket(
+                data, data.size,
+                InetAddress.getByName("255.255.255.255"),
+                port
+            )
             s.send(packet)
         }
     }
 
     override fun close() {
         recvJob?.cancel()
-        try { socket?.close() } catch (_: Exception) {}
+        try {
+            socket?.close()
+        } catch (_: Exception) {
+        }
         socket = null
         scope.cancel()
     }

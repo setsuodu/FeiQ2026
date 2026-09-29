@@ -7,5 +7,5 @@
 组件|技术|作用|是否必须
 --|--|--|--
 WPF 客户端|.NET 10 + WPF|Windows 端，兼容飞秋2013 + 互联网模式|必须
-Kotlin 客户端|Compose（Desktop 或 Android）|另一端，同样走抽象传输层|必须
+Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 中继服务|.NET Console（或随便什么）|互联网模式下的信令/消息/文件中转|只有要互联网时才需要

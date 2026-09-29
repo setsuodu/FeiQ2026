@@ -57,9 +57,12 @@ data class FileAttachInfo(
     val fileId: Int,
     val fileName: String,
     val size: Long,
-    val mtime: Long,
+    val mtime: Long = 0,
     val fileAttr: Int = IpMsgCommands.FileRegular
 ) {
+    // 兼容旧字段名
+    val attr: Int get() = fileAttr
+
     fun toExtraString(): String {
         val safeName = fileName.replace(":", "::")
         return "${fileId.toString(16)}:$safeName:${size.toString(16)}:${mtime.toString(16)}:${fileAttr.toString(16)}"

@@ -41,7 +41,7 @@ object WsFileFrame {
         val payload: ByteArray
     )
 
-    fun tryParse(data: ByteArray): Parsed? {
+    fun parse(data: ByteArray): Parsed? {
         if (!isFileFrame(data)) return null
         val buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
         buf.position(4)
@@ -50,10 +50,18 @@ object WsFileFrame {
         val offset = buf.long
         val totalSize = buf.long
         val nameLen = buf.short.toInt() and 0xFFFF
-        if (34 + nameLen > data.size) return null
+        if (buf.remaining() < nameLen) return null
         val nameBytes = ByteArray(nameLen)
         buf.get(nameBytes)
-        val payload = data.copyOfRange(34 + nameLen, data.size)
-        return Parsed(packetNo, fileId, offset, totalSize, String(nameBytes, StandardCharsets.UTF_8), payload)
+        val payload = ByteArray(buf.remaining())
+        buf.get(payload)
+        return Parsed(
+            packetNo = packetNo,
+            fileId = fileId,
+            offset = offset,
+            totalSize = totalSize,
+            fileName = String(nameBytes, StandardCharsets.UTF_8),
+            payload = payload
+        )
     }
 }

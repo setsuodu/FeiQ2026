@@ -59,8 +59,8 @@ class IpMsgService(
     userName: String? = null,
     hostName: String? = null
 ) {
-    private val userName = userName ?: System.getProperty("user.name", "user")
-    private val hostName = hostName ?: InetAddress.getLocalHost().hostName
+    private val userName = userName ?: "AndroidUser"
+    private val hostName = hostName ?: "android"
     private val charset: Charset = Charset.forName("GBK")
     private val packetNo = AtomicLong(System.currentTimeMillis() / 1000)
     private val nextFileId = AtomicInteger(1)
@@ -74,10 +74,7 @@ class IpMsgService(
     private var tcpJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    var downloadDir: File = File(
-        System.getProperty("user.home"),
-        "Documents/MiniFeiQ"
-    )
+    var downloadDir: File = File("/data/data/minifeiq.android/files/downloads") // 运行时由 UI 覆盖为 context.filesDir
 
     var onPeerOnline: ((Peer) -> Unit)? = null
     var onPeerOffline: ((Peer) -> Unit)? = null
@@ -300,7 +297,7 @@ class IpMsgService(
     }
 
     private fun handleWsFileFrame(buffer: ByteArray) {
-        val parsed = WsFileFrame.tryParse(buffer) ?: return
+        val parsed = WsFileFrame.parse(buffer) ?: return
         val key = "${parsed.packetNo}:${parsed.fileId}"
         val recv = wsReceiving[key] ?: return // 未接受则丢弃
 
@@ -439,7 +436,7 @@ class IpMsgService(
     private fun isLocal(ip: InetAddress): Boolean {
         if (ip.isLoopbackAddress) return true
         return try {
-            InetAddress.getAllByName(InetAddress.getLocalHost().hostName).any { it == ip }
+            InetAddress.getAllByName("android").any { it == ip }
         } catch (_: Exception) {
             false
         }
