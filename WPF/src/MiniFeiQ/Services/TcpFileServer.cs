@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -54,48 +55,50 @@ public sealed class TcpFileServer : IAsyncDisposable
         try
         {
             using (client)
-            await using var stream = client.GetStream();
-            // 读一条 IPMSG 文本请求（以 \0 结束或超时）
-            var buf = new byte[4096];
-            using var ms = new MemoryStream();
-            while (ms.Length < 8192)
             {
-                var n = await stream.ReadAsync(buf.AsMemory(0, buf.Length), ct).ConfigureAwait(false);
-                if (n == 0) return;
-                ms.Write(buf, 0, n);
-                var arr = ms.ToArray();
-                if (Array.IndexOf(arr, (byte)0) >= 0) break;
-                if (!stream.DataAvailable && ms.Length > 0) break;
+                await using var stream = client.GetStream();
+                // 读一条 IPMSG 文本请求（以 \0 结束）
+                var buf = new byte[4096];
+                using var ms = new MemoryStream();
+                while (ms.Length < 8192)
+                {
+                    var n = await stream.ReadAsync(buf.AsMemory(0, buf.Length), ct).ConfigureAwait(false);
+                    if (n == 0) return;
+                    ms.Write(buf, 0, n);
+                    var arr = ms.ToArray();
+                    if (Array.IndexOf(arr, (byte)0) >= 0) break;
+                    if (!stream.DataAvailable && ms.Length > 0) break;
+                }
+
+                var text = _encoding.GetString(ms.ToArray());
+                var pkt = IpMsgPacket.TryParse(text);
+                if (pkt == null || pkt.BasicCommand != IpMsgCommands.GetFileData)
+                    return;
+
+                // extra: packetID:fileID:offset （hex）
+                var parts = pkt.Extra.Split(':');
+                if (parts.Length < 3) return;
+                if (!long.TryParse(parts[0], System.Globalization.NumberStyles.HexNumber, null, out var packetNo))
+                    return;
+                if (!int.TryParse(parts[1], System.Globalization.NumberStyles.HexNumber, null, out var fileId))
+                    return;
+                long.TryParse(parts[2], System.Globalization.NumberStyles.HexNumber, null, out var offset);
+
+                var shared = _lookup(packetNo, fileId);
+                if (shared == null || !File.Exists(shared.Path)) return;
+
+                await using var fs = new FileStream(shared.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                if (offset > 0 && offset < fs.Length)
+                    fs.Seek(offset, SeekOrigin.Begin);
+
+                var chunk = new byte[64 * 1024];
+                int read;
+                while ((read = await fs.ReadAsync(chunk, ct).ConfigureAwait(false)) > 0)
+                {
+                    await stream.WriteAsync(chunk.AsMemory(0, read), ct).ConfigureAwait(false);
+                }
+                await stream.FlushAsync(ct).ConfigureAwait(false);
             }
-
-            var text = _encoding.GetString(ms.ToArray());
-            var pkt = IpMsgPacket.TryParse(text);
-            if (pkt == null || pkt.BasicCommand != IpMsgCommands.GetFileData)
-                return;
-
-            // extra: packetID:fileID:offset （hex）
-            var parts = pkt.Extra.Split(':');
-            if (parts.Length < 3) return;
-            if (!long.TryParse(parts[0], System.Globalization.NumberStyles.HexNumber, null, out var packetNo))
-                return;
-            if (!int.TryParse(parts[1], System.Globalization.NumberStyles.HexNumber, null, out var fileId))
-                return;
-            long.TryParse(parts[2], System.Globalization.NumberStyles.HexNumber, null, out var offset);
-
-            var shared = _lookup(packetNo, fileId);
-            if (shared == null || !File.Exists(shared.Path)) return;
-
-            await using var fs = new FileStream(shared.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            if (offset > 0 && offset < fs.Length)
-                fs.Seek(offset, SeekOrigin.Begin);
-
-            var chunk = new byte[64 * 1024];
-            int read;
-            while ((read = await fs.ReadAsync(chunk, ct).ConfigureAwait(false)) > 0)
-            {
-                await stream.WriteAsync(chunk.AsMemory(0, read), ct).ConfigureAwait(false);
-            }
-            await stream.FlushAsync(ct).ConfigureAwait(false);
         }
         catch
         {
