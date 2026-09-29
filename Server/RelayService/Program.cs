@@ -77,31 +77,42 @@ app.Run();
 static async Task ReceiveLoop(ClientSession self, ConcurrentDictionary<string, ClientSession> clients)
 {
     var buffer = new byte[64 * 1024];
-    while (self.Socket.State == WebSocketState.Open)
+    try
     {
-        using var ms = new MemoryStream();
-        WebSocketReceiveResult result;
-        do
+        while (self.Socket.State == WebSocketState.Open)
         {
-            result = await self.Socket.ReceiveAsync(buffer, CancellationToken.None);
-            if (result.MessageType == WebSocketMessageType.Close)
-                return;
-            ms.Write(buffer, 0, result.Count);
-        } while (!result.EndOfMessage);
+            using var ms = new MemoryStream();
+            WebSocketReceiveResult result;
+            do
+            {
+                result = await self.Socket.ReceiveAsync(buffer, CancellationToken.None);
+                if (result.MessageType == WebSocketMessageType.Close)
+                    return;
+                ms.Write(buffer, 0, result.Count);
+            } while (!result.EndOfMessage);
 
-        var data = ms.ToArray();
-        if (data.Length == 0) continue;
+            var data = ms.ToArray();
+            if (data.Length == 0) continue;
 
-        // 简单广播：转发给除自己以外的所有在线客户端
-        var tasks = new List<Task>();
-        foreach (var kv in clients)
-        {
-            if (kv.Key == self.Id) continue;
-            if (kv.Value.Socket.State != WebSocketState.Open) continue;
-            tasks.Add(SendSafe(kv.Value, data));
+            // 简单广播：转发给除自己以外的所有在线客户端
+            var tasks = new List<Task>();
+            foreach (var kv in clients)
+            {
+                if (kv.Key == self.Id) continue;
+                if (kv.Value.Socket.State != WebSocketState.Open) continue;
+                tasks.Add(SendSafe(kv.Value, data));
+            }
+            if (tasks.Count > 0)
+                await Task.WhenAll(tasks);
         }
-        if (tasks.Count > 0)
-            await Task.WhenAll(tasks);
+    }
+    catch (WebSocketException)
+    {
+        // 对端突然断开（未完成 close handshake），正常下线即可
+    }
+    catch (OperationCanceledException)
+    {
+        // 取消时正常退出
     }
 }
 

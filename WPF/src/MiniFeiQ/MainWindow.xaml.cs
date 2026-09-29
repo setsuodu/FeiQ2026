@@ -136,7 +136,7 @@ public partial class MainWindow : Window
         {
             // 中继广播：随便给个占位 IP
             await _service.SendTextAsync(System.Net.IPAddress.Loopback, text);
-            AppendLog($"[我 → 全员] {text}");
+            AppendLog($"[我：] {text}");
         }
         else
         {
