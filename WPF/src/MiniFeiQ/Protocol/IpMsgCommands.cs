@@ -16,6 +16,11 @@ public static class IpMsgCommands
     public const int ReadMsg     = 0x00000030;
     public const int DelMsg      = 0x00000031;
 
+    // 文件传输（TCP 侧命令，也可在 WebSocket 中继上复用）
+    public const int GetFileData = 0x00000060; // 请求附件数据
+    public const int ReleaseFiles = 0x00000061; // 取消附件
+    public const int GetDirFiles = 0x00000062; // 请求目录附件
+
     // 选项位
     public const int SendCheckOpt   = 0x00000100; // 要求回执
     public const int SecretOpt      = 0x00000200;
@@ -24,4 +29,9 @@ public static class IpMsgCommands
     public const int FileAttachOpt  = 0x00200000; // 文件附件
     public const int EncryptOpt     = 0x00400000;
     public const int Utf8Opt        = 0x00800000;
+
+    // 文件属性（fileattr 低 8 位）
+    public const int FileRegular    = 0x00000001;
+    public const int FileDir        = 0x00000002;
+    public const int FileRetParent  = 0x00000003;
 }
