@@ -27,7 +27,9 @@ public partial class ChatWindow : Window
         InitializeComponent();
         Peer = peer;
         _store = store;
-        _peerKey = $"{peer.Name}|{peer.Ip}";
+        _peerKey = !string.IsNullOrWhiteSpace(peer.HostName)
+            ? "host:" + peer.HostName.Trim().ToLowerInvariant()
+            : "ip:" + peer.Ip;
         _sendText = sendText;
         _sendFile = sendFile;
 

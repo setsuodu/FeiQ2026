@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Windows;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -29,7 +28,6 @@ public partial class MainWindow : Window
 
         UserList.ItemsSource = _friends;
         ApplyProfileUi();
-        ServerUrlBox.Text = _settings.LastServerUrl;
         ModeBox.SelectedIndex = _settings.LastModeIndex;
 
         Loaded += async (_, _) => await StartServiceAsync();
@@ -95,14 +93,6 @@ public partial class MainWindow : Window
         await StartServiceAsync();
     }
 
-    private async void Connect_Click(object sender, RoutedEventArgs e)
-    {
-        _settings.LastServerUrl = ServerUrlBox.Text?.Trim() ?? _settings.LastServerUrl;
-        _settings.LastModeIndex = ModeBox.SelectedIndex;
-        _settings.Save();
-        await StopServiceAsync();
-        await StartServiceAsync();
-    }
 
     private async void ModeBox_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
@@ -117,16 +107,20 @@ public partial class MainWindow : Window
     {
         try
         {
+            SetConnState(connecting: true);
             StatusText.Text = "连接中...";
             StatusText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE0, 0xF7, 0xFF));
 
             var isWs = ModeBox.SelectedIndex == 1;
             if (isWs)
             {
-                var url = ServerUrlBox.Text?.Trim();
+                var url = _settings.LastServerUrl?.Trim();
                 if (string.IsNullOrEmpty(url))
                 {
-                    System.Windows.MessageBox.Show("请填写中继地址，例如 ws://192.168.1.101:9000/ws", "FeiQ 2026");
+                    SetConnState(ok: false);
+                    System.Windows.MessageBox.Show(
+                        "请先在设置中填写中继地址（点击左上角头像）\n例如 ws://192.168.1.101:9000/ws",
+                        "FeiQ 2026");
                     return;
                 }
                 _transport = new WebSocketTransport(url);
@@ -148,14 +142,36 @@ public partial class MainWindow : Window
 
             StatusText.Text = isWs ? "已连接中继" : "UDP 已启动 · 飞秋兼容";
             StatusText.Foreground = System.Windows.Media.Brushes.White;
+            SetConnState(ok: true);
             App.UpdateTrayTip($"FeiQ 2026（在线人数: {_friends.Count}）");
         }
         catch (Exception ex)
         {
             StatusText.Text = "连接失败";
             StatusText.Foreground = System.Windows.Media.Brushes.LightPink;
+            SetConnState(ok: false);
             System.Windows.MessageBox.Show($"启动失败:\n{ex.Message}", "FeiQ 2026",
                 MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void SetConnState(bool ok = false, bool connecting = false)
+    {
+        if (ConnDot == null) return;
+        if (connecting)
+        {
+            ConnDot.Fill = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0xB3, 0x00)); // amber
+            ConnDot.ToolTip = "连接中...";
+        }
+        else if (ok)
+        {
+            ConnDot.Fill = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x22, 0xC5, 0x5E)); // green
+            ConnDot.ToolTip = "已连接";
+        }
+        else
+        {
+            ConnDot.Fill = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xBB, 0xBB, 0xBB));
+            ConnDot.ToolTip = "未连接";
         }
     }
 
@@ -174,9 +190,21 @@ public partial class MainWindow : Window
         _transport = null;
         _friends.Clear();
         UpdateOnlineCount();
+        SetConnState(ok: false);
     }
 
-    private static string PeerKey(Peer p) => $"{p.Name}|{p.Ip}";
+    /// <summary>
+    /// 聊天记录主键：用协议里的 HostName（机器名），比用户名/IP 稳定。
+    /// IPMSG 不带 MAC；路由器 ARP 表客户端拿不到。
+    /// </summary>
+    private static string PeerKey(Peer p)
+    {
+        var host = (p.HostName ?? "").Trim();
+        if (!string.IsNullOrEmpty(host))
+            return "host:" + host.ToLowerInvariant();
+        // 极端兜底（无主机名时）
+        return "ip:" + p.Ip;
+    }
 
     private void OnPeerOnline(Peer peer)
     {
@@ -308,16 +336,6 @@ public partial class MainWindow : Window
         catch { /* ignore */ }
     }
 
-    private void SearchBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
-    {
-        var q = SearchBox.Text?.Trim() ?? "";
-        var view = CollectionViewSource.GetDefaultView(_friends);
-        view.Filter = string.IsNullOrEmpty(q)
-            ? null
-            : o => o is FriendItem f &&
-                   (f.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
-                    f.SubTitle.Contains(q, StringComparison.OrdinalIgnoreCase));
-    }
 
     private void Window_StateChanged(object? sender, EventArgs e)
     {
@@ -347,7 +365,6 @@ public partial class MainWindow : Window
         try { _chatStore.Dispose(); } catch { /* ignore */ }
         try
         {
-            _settings.LastServerUrl = ServerUrlBox.Text?.Trim() ?? _settings.LastServerUrl;
             _settings.LastModeIndex = ModeBox.SelectedIndex;
             _settings.Save();
         }

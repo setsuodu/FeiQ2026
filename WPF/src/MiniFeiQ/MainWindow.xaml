@@ -61,23 +61,17 @@
             </DockPanel>
         </Border>
 
-        <Border Grid.Row="1" Background="White" BorderBrush="#E5E5E5" BorderThickness="0,0,0,1" Padding="8,6">
-            <StackPanel>
-                <DockPanel Margin="0,0,0,4">
-                    <ComboBox x:Name="ModeBox" Width="130" SelectedIndex="0" SelectionChanged="ModeBox_Changed"
-                              DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <ComboBoxItem Content="UDP 局域网"/>
-                        <ComboBoxItem Content="WebSocket 中继"/>
-                    </ComboBox>
-                    <Button x:Name="ConnectBtn" Content="连接" Width="56" Margin="6,0,0,0"
-                            Click="Connect_Click" DockPanel.Dock="Right"/>
-                    <TextBox x:Name="ServerUrlBox" Text="ws://192.168.1.101:9000/ws"
-                             Margin="6,0,0,0" VerticalContentAlignment="Center"
-                             ToolTip="中继地址，仅 WebSocket 模式需要"/>
-                </DockPanel>
-                <TextBox x:Name="SearchBox" Padding="6,4" ToolTip="搜索好友"
-                         TextChanged="SearchBox_TextChanged" Background="#F5F5F5" BorderBrush="#E0E0E0"/>
-            </StackPanel>
+        <Border Grid.Row="1" Background="White" BorderBrush="#E5E5E5" BorderThickness="0,0,0,1" Padding="10,8">
+            <DockPanel>
+                <Ellipse x:Name="ConnDot" Width="10" Height="10" Fill="#BBBBBB"
+                         DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Center"
+                         ToolTip="连接状态"/>
+                <ComboBox x:Name="ModeBox" SelectedIndex="0" SelectionChanged="ModeBox_Changed"
+                          VerticalAlignment="Center">
+                    <ComboBoxItem Content="UDP 局域网"/>
+                    <ComboBoxItem Content="WebSocket 中继"/>
+                </ComboBox>
+            </DockPanel>
         </Border>
 
         <DockPanel Grid.Row="2" Background="White">

@@ -19,6 +19,7 @@ public partial class SettingsWindow : Window
         _avatarPath = settings.AvatarPath;
 
         UserNameBox.Text = settings.UserName;
+        ServerUrlBox.Text = settings.LastServerUrl;
         DownloadDirBox.Text = settings.DownloadDir;
         ChatDirBox.Text = settings.ChatDbDir;
         RefreshAvatarPreview();
@@ -111,6 +112,9 @@ public partial class SettingsWindow : Window
 
         _settings.UserName = name;
         _settings.AvatarPath = _avatarPath;
+        var url = ServerUrlBox.Text?.Trim();
+        if (!string.IsNullOrEmpty(url))
+            _settings.LastServerUrl = url;
         _settings.DownloadDir = DownloadDirBox.Text?.Trim() ?? _settings.DownloadDir;
         _settings.ChatDbDir = ChatDirBox.Text?.Trim() ?? _settings.ChatDbDir;
         _settings.Save();

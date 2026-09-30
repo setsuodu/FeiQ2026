@@ -13,6 +13,9 @@ public sealed class ChatMessageRow
     public DateTime CreatedAt { get; init; }
 }
 
+/// <summary>
+/// 聊天记录。peer_key 约定：host:{机器名小写}（协议 HostName），非 IP/用户名/MAC。
+/// </summary>
 public sealed class ChatStore : IDisposable
 {
     private readonly SqliteConnection _conn;
