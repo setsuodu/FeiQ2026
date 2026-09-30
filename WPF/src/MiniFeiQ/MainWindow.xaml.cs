@@ -83,6 +83,9 @@ public partial class MainWindow : Window
             _chatStore = new ChatStore(_settings.ChatDbPath);
         }
 
+        // 头像变更：推给所有在线 FeiQ2026 好友
+        _ = PushAvatarToAllAsync();
+
         // 用户名/下载目录变更：重连以生效
         _ = RestartServiceAsync();
     }
@@ -210,10 +213,15 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            if (_friends.All(f => PeerKey(f.Peer) != PeerKey(peer)))
+            var key = PeerKey(peer);
+            if (_friends.All(f => PeerKey(f.Peer) != key))
                 _friends.Add(new FriendItem(peer));
+            else
+                RefreshFriendAvatar(key);
             UpdateOnlineCount();
         });
+        // 向新上线的 FeiQ2026 好友推送自己的头像
+        _ = PushAvatarToAsync(peer);
     }
 
     private void OnPeerOffline(Peer peer)
@@ -228,6 +236,20 @@ public partial class MainWindow : Window
 
     private void OnMessageReceived(Peer peer, string text)
     {
+        // FeiQ2026 头像同步包：不进聊天记录、不弹气泡
+        if (AvatarCache.TryParse(text, out var jpeg))
+        {
+            var key = PeerKey(peer);
+            AvatarCache.Save(key, jpeg);
+            Dispatcher.Invoke(() =>
+            {
+                RefreshFriendAvatar(key);
+                if (_chats.TryGetValue(key, out var chat) && chat.IsLoaded)
+                    chat.UpdatePeerAvatar(AvatarCache.GetPath(key));
+            });
+            return;
+        }
+
         Dispatcher.Invoke(() =>
         {
             var key = PeerKey(peer);
@@ -244,6 +266,36 @@ public partial class MainWindow : Window
                 App.Balloon($"来自 {peer.Name}", text);
             }
         });
+    }
+
+    private void RefreshFriendAvatar(string peerKey)
+    {
+        var item = _friends.FirstOrDefault(f => PeerKey(f.Peer) == peerKey);
+        item?.ReloadAvatar();
+    }
+
+    private async Task PushAvatarToAsync(Peer peer)
+    {
+        if (_service == null) return;
+        var msg = AvatarCache.BuildSyncMessage(_settings.AvatarPath);
+        if (msg == null) return;
+        try
+        {
+            await _service.SendTextAsync(peer.Ip, msg, requireAck: false);
+        }
+        catch { /* ignore */ }
+    }
+
+    private async Task PushAvatarToAllAsync()
+    {
+        if (_service == null) return;
+        var msg = AvatarCache.BuildSyncMessage(_settings.AvatarPath);
+        if (msg == null) return;
+        foreach (var f in _friends.ToList())
+        {
+            try { await _service.SendTextAsync(f.Peer.Ip, msg, requireAck: false); }
+            catch { /* ignore */ }
+        }
     }
 
     /// <summary>
@@ -436,12 +488,42 @@ public partial class MainWindow : Window
     }
 }
 
-public sealed class FriendItem
+public sealed class FriendItem : INotifyPropertyChanged
 {
     public Peer Peer { get; }
     public string Name => Peer.Name;
     public string SubTitle => $"{Peer.HostName} · {Peer.Ip}";
     public string AvatarLetter => string.IsNullOrEmpty(Peer.Name) ? "?" : Peer.Name[..1].ToUpperInvariant();
 
-    public FriendItem(Peer peer) => Peer = peer;
+    private ImageSource? _avatarImage;
+    public ImageSource? AvatarImage
+    {
+        get => _avatarImage;
+        private set
+        {
+            _avatarImage = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AvatarImage)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ImageVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LetterVisibility)));
+        }
+    }
+
+    public Visibility ImageVisibility => AvatarImage != null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility LetterVisibility => AvatarImage == null ? Visibility.Visible : Visibility.Collapsed;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public FriendItem(Peer peer)
+    {
+        Peer = peer;
+        ReloadAvatar();
+    }
+
+    public void ReloadAvatar()
+    {
+        var key = !string.IsNullOrWhiteSpace(Peer.HostName)
+            ? "host:" + Peer.HostName.Trim().ToLowerInvariant()
+            : "ip:" + Peer.Ip;
+        AvatarImage = AvatarCache.LoadImage(key);
+    }
 }

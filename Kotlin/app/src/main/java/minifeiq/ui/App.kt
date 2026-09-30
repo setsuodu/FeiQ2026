@@ -34,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import minifeiq.data.AppSettings
+import minifeiq.data.AvatarCache
 import minifeiq.data.ChatStore
 import minifeiq.service.IncomingFileOffer
 import minifeiq.service.IpMsgService
@@ -79,6 +80,8 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
     val chatLogs = remember { mutableStateMapOf<String, SnapshotStateList<ChatUiMsg>>() }
     var pendingOffer by remember { mutableStateOf<IncomingFileOffer?>(null) }
     var activeFilePeer by remember { mutableStateOf<Peer?>(null) }
+    /** 头像缓存更新计数，用于触发 Compose 重绘 */
+    var avatarTick by remember { mutableIntStateOf(0) }
 
     fun peerKey(p: Peer) = ChatStore.peerKey(p)
 
@@ -224,6 +227,13 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                     scope.launch(Dispatchers.Main) {
                         if (users.none { peerKey(it) == peerKey(p) }) users.add(p)
                     }
+                    // 向对方推送自己的头像（FeiQ2026）
+                    scope.launch(Dispatchers.IO) {
+                        val msg = AvatarCache.buildSyncMessage(settings.avatarPath) ?: return@launch
+                        try {
+                            svc.sendText(p.ip, msg, requireAck = false)
+                        } catch (_: Exception) { }
+                    }
                 }
                 svc.onPeerOffline = { p ->
                     scope.launch(Dispatchers.Main) {
@@ -232,6 +242,12 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                 }
                 svc.onMessage = { p, text ->
                     scope.launch(Dispatchers.Main) {
+                        val jpeg = AvatarCache.tryParse(text)
+                        if (jpeg != null) {
+                            AvatarCache.save(context, peerKey(p), jpeg)
+                            avatarTick++ // 触发列表/气泡重绘
+                            return@launch
+                        }
                         appendLog(p, "in", text)
                     }
                 }
@@ -396,6 +412,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                         status = status,
                         statusColor = statusColor,
                         modeIndex = modeIndex,
+                        avatarTick = avatarTick,
                         onModeChange = { modeIndex = it },
                         onOpenChat = { p ->
                             ensureHistory(p)
@@ -422,6 +439,19 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                             settings.userName = name
                             settings.serverUrl = url
                             settings.avatarPath = avatar
+                            // 头像变更后推给所有在线 FeiQ2026
+                            val msg = AvatarCache.buildSyncMessage(avatar)
+                            if (msg != null) {
+                                val svc = service
+                                val snapshot = users.toList()
+                                if (svc != null) {
+                                    scope.launch(Dispatchers.IO) {
+                                        for (p in snapshot) {
+                                            try { svc.sendText(p.ip, msg, requireAck = false) } catch (_: Exception) { }
+                                        }
+                                    }
+                                }
+                            }
                             startService()
                         },
                         onModeChange = { modeIndex = it }
@@ -480,10 +510,14 @@ private fun ChatListScreen(
     status: String,
     statusColor: Color,
     modeIndex: Int,
+    avatarTick: Int = 0,
     onModeChange: (Int) -> Unit,
     onOpenChat: (Peer) -> Unit,
     onRefresh: () -> Unit
 ) {
+    // avatarTick 仅用于收到头像后触发重组
+    @Suppress("UNUSED_EXPRESSION")
+    avatarTick
     Column(
         Modifier
             .fillMaxSize()
@@ -547,19 +581,13 @@ private fun ChatListScreen(
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF12B7F5)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                peer.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        val ctx = LocalContext.current
+                        val peerAv = AvatarCache.getPath(ctx, ChatStore.peerKey(peer))
+                        AvatarCircle(
+                            letter = peer.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                            bg = Color(0xFF12B7F5),
+                            imagePath = peerAv
+                        )
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(peer.name, fontWeight = FontWeight.SemiBold)
@@ -805,11 +833,13 @@ private fun ChatScreen(
                 .padding(horizontal = 10.dp, vertical = 8.dp)
         ) {
             items(logs) { msg ->
+                val ctx = LocalContext.current
                 ChatBubbleRow(
                     peerName = peer.name,
                     msg = msg,
                     selfAvatarPath = selfAvatarPath,
-                    context = LocalContext.current
+                    peerAvatarPath = AvatarCache.getPath(ctx, ChatStore.peerKey(peer)),
+                    context = ctx
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -867,6 +897,7 @@ private fun ChatBubbleRow(
     peerName: String,
     msg: ChatUiMsg,
     selfAvatarPath: String? = null,
+    peerAvatarPath: String? = null,
     context: Context
 ) {
     when {
@@ -914,7 +945,8 @@ private fun ChatBubbleRow(
             ) {
                 AvatarCircle(
                     letter = peerName.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                    bg = Color(0xFF12B7F5)
+                    bg = Color(0xFF12B7F5),
+                    imagePath = peerAvatarPath
                 )
                 Spacer(Modifier.width(8.dp))
                 Column(horizontalAlignment = Alignment.Start, modifier = Modifier.weight(1f, fill = false)) {

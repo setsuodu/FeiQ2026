@@ -95,9 +95,14 @@
                     <DataTemplate>
                         <DockPanel>
                             <Border Width="40" Height="40" CornerRadius="20" Background="#12B7F5"
-                                    DockPanel.Dock="Left" Margin="0,0,10,0">
-                                <TextBlock Text="{Binding AvatarLetter}" Foreground="White" FontWeight="Bold"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    DockPanel.Dock="Left" Margin="0,0,10,0" ClipToBounds="True">
+                                <Grid>
+                                    <TextBlock Text="{Binding AvatarLetter}" Foreground="White" FontWeight="Bold"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding LetterVisibility}"/>
+                                    <Image Source="{Binding AvatarImage}" Stretch="UniformToFill"
+                                           Visibility="{Binding ImageVisibility}"/>
+                                </Grid>
                             </Border>
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" Foreground="#222"/>

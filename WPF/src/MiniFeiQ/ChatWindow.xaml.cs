@@ -31,6 +31,7 @@ public partial class ChatWindow : Window
     private readonly string _peerLetter;
     private readonly string _selfLetter;
     private readonly ImageSource? _selfAvatarImage;
+    private ImageSource? _peerAvatarImage;
 
     private static readonly HashSet<string> ImageExts = new(StringComparer.OrdinalIgnoreCase)
         { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif" };
@@ -63,6 +64,7 @@ public partial class ChatWindow : Window
         var selfName = settings.UserName;
         _selfLetter = string.IsNullOrEmpty(selfName) ? "我" : selfName[..1].ToUpperInvariant();
         _selfAvatarImage = LoadAvatarImage(settings.AvatarPath);
+        _peerAvatarImage = AvatarCache.LoadImage(_peerKey);
 
         Title = $"{peer.Name} - FeiQ 2026";
         PeerNameText.Text = peer.Name;
@@ -71,6 +73,12 @@ public partial class ChatWindow : Window
         MsgList.ItemsSource = _messages;
 
         LoadHistory();
+    }
+
+    /// <summary>收到对方头像同步后刷新气泡侧头像（新消息生效；历史保持字母亦可接受）</summary>
+    public void UpdatePeerAvatar(string? path)
+    {
+        _peerAvatarImage = LoadAvatarImage(path);
     }
 
     private static ImageSource? LoadAvatarImage(string? path)
@@ -371,6 +379,7 @@ public partial class ChatWindow : Window
         Kind = FileKind.Text,
         IsOutgoing = isOutgoing,
         PeerAvatarLetter = _peerLetter,
+        PeerAvatarImage = _peerAvatarImage,
         SelfAvatarLetter = _selfLetter,
         SelfAvatarImage = _selfAvatarImage
     };
@@ -388,6 +397,7 @@ public partial class ChatWindow : Window
         MediaPath = url,
         IsOutgoing = isOutgoing,
         PeerAvatarLetter = _peerLetter,
+        PeerAvatarImage = _peerAvatarImage,
         SelfAvatarLetter = _selfLetter,
         SelfAvatarImage = _selfAvatarImage
     };
@@ -445,6 +455,7 @@ public partial class ChatWindow : Window
             IsOutgoing = isOutgoing,
             IsFileMissing = missing,
             PeerAvatarLetter = _peerLetter,
+            PeerAvatarImage = _peerAvatarImage,
             SelfAvatarLetter = _selfLetter,
             SelfAvatarImage = _selfAvatarImage
         };
@@ -482,6 +493,7 @@ public sealed class ChatBubble
     public string PeerAvatarLetter { get; init; } = "?";
     public string SelfAvatarLetter { get; init; } = "我";
     public ImageSource? SelfAvatarImage { get; init; }
+    public ImageSource? PeerAvatarImage { get; init; }
 
     public MediaBrush PeerAvatarBg { get; } = new SolidColorBrush(MediaColor.FromRgb(0x12, 0xB7, 0xF5));
     public MediaBrush SelfAvatarBg { get; } = new SolidColorBrush(MediaColor.FromRgb(0x07, 0xC1, 0x60));
@@ -493,6 +505,11 @@ public sealed class ChatBubble
         !IsSystem && !IsOutgoing ? WpfVisibility.Visible : WpfVisibility.Collapsed;
     public WpfVisibility SelfAvatarVisibility =>
         !IsSystem && IsOutgoing ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+
+    public WpfVisibility PeerAvatarImageVisibility =>
+        PeerAvatarImage != null ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+    public WpfVisibility PeerAvatarLetterVisibility =>
+        PeerAvatarImage == null ? WpfVisibility.Visible : WpfVisibility.Collapsed;
 
     public WpfVisibility SelfAvatarImageVisibility =>
         SelfAvatarImage != null ? WpfVisibility.Visible : WpfVisibility.Collapsed;

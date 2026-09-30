@@ -66,11 +66,16 @@
                                     <!-- 对方头像（左列） -->
                                     <Border Grid.Column="0" Width="36" Height="36" CornerRadius="18"
                                             Background="{Binding PeerAvatarBg}"
-                                            Margin="0,0,8,0" VerticalAlignment="Top"
+                                            Margin="0,0,8,0" VerticalAlignment="Top" ClipToBounds="True"
                                             Visibility="{Binding PeerAvatarVisibility}">
-                                        <TextBlock Text="{Binding PeerAvatarLetter}" Foreground="White"
-                                                   FontWeight="Bold" FontSize="14"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Grid>
+                                            <TextBlock Text="{Binding PeerAvatarLetter}" Foreground="White"
+                                                       FontWeight="Bold" FontSize="14"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Visibility="{Binding PeerAvatarLetterVisibility}"/>
+                                            <Image Source="{Binding PeerAvatarImage}" Stretch="UniformToFill"
+                                                   Visibility="{Binding PeerAvatarImageVisibility}"/>
+                                        </Grid>
                                     </Border>
 
                                     <!-- 气泡（中列，按 Align 左右对齐） -->
