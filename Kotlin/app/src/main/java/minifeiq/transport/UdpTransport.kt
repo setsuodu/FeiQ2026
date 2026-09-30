@@ -7,8 +7,14 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.SocketException
 
-class UdpTransport(private val port: Int = 2425) : Transport {
-    override val localPort: Int get() = port
+/** 飞秋兼容 UDP，默认端口 2425。localPort 在 bind 成功后为真实端口，失败前也不会是 -1。 */
+class UdpTransport(private val bindPort: Int = 2425) : Transport {
+    @Volatile
+    private var boundPort: Int = bindPort
+
+    override val localPort: Int
+        get() = if (boundPort in 1..65535) boundPort else 2425
+
     override val supportsBroadcast: Boolean = true
     override var onDataReceived: ((ByteArray, InetSocketAddress) -> Unit)? = null
 
@@ -21,8 +27,11 @@ class UdpTransport(private val port: Int = 2425) : Transport {
         val s = DatagramSocket(null).apply {
             reuseAddress = true
             broadcast = true
-            bind(InetSocketAddress(port))
+            bind(InetSocketAddress(bindPort))
         }
+        // bind 后取真实本地端口；个别实现未 bind 时 localPort=-1，必须兜底
+        val real = s.localPort
+        boundPort = if (real in 1..65535) real else bindPort
         socket = s
         recvJob = scope.launch {
             val buf = ByteArray(64 * 1024)
@@ -31,7 +40,9 @@ class UdpTransport(private val port: Int = 2425) : Transport {
                     val packet = DatagramPacket(buf, buf.size)
                     s.receive(packet)
                     val data = packet.data.copyOf(packet.length)
-                    val remote = InetSocketAddress(packet.address, packet.port)
+                    val rPort = packet.port
+                    val port = if (rPort in 1..65535) rPort else boundPort
+                    val remote = InetSocketAddress(packet.address, port)
                     onDataReceived?.invoke(data, remote)
                 } catch (_: SocketException) {
                     break
@@ -46,23 +57,24 @@ class UdpTransport(private val port: Int = 2425) : Transport {
 
     override suspend fun send(data: ByteArray, remote: InetSocketAddress) {
         val s = socket ?: error("Transport not started")
+        val destPort = when {
+            remote.port in 1..65535 -> remote.port
+            else -> localPort
+        }
         withContext(Dispatchers.IO) {
-            val packet = DatagramPacket(
-                data, data.size,
-                remote.address,
-                if (remote.port > 0) remote.port else port
-            )
+            val packet = DatagramPacket(data, data.size, remote.address, destPort)
             s.send(packet)
         }
     }
 
     override suspend fun broadcast(data: ByteArray, port: Int) {
         val s = socket ?: error("Transport not started")
+        val destPort = if (port in 1..65535) port else localPort
         withContext(Dispatchers.IO) {
             val packet = DatagramPacket(
                 data, data.size,
                 InetAddress.getByName("255.255.255.255"),
-                port
+                destPort
             )
             s.send(packet)
         }
@@ -75,6 +87,7 @@ class UdpTransport(private val port: Int = 2425) : Transport {
         } catch (_: Exception) {
         }
         socket = null
+        boundPort = bindPort
         scope.cancel()
     }
 }

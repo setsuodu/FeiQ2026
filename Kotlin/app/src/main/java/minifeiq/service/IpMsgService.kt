@@ -87,13 +87,19 @@ class IpMsgService(
         transport.start()
 
         if (!isWebSocket && transport.localPort > 0) {
-            startTcpServer(transport.localPort)
+            startTcpServer(peerPort())
         }
         announceOnline()
     }
 
     private fun startTcpServer(port: Int) {
-        val server = ServerSocket(port)
+        val p = if (port in 1..65535) port else 2425
+        val server = try {
+            ServerSocket(p)
+        } catch (e: Exception) {
+            // 端口被占时不拖垮整个 UDP 上线
+            return
+        }
         tcpServer = server
         tcpJob = scope.launch {
             while (isActive) {
@@ -150,24 +156,29 @@ class IpMsgService(
         }
     }
 
+    private fun peerPort(): Int {
+        val p = transport.localPort
+        return if (p in 1..65535) p else 2425
+    }
+
     suspend fun announceOnline() {
         val pkt = buildPacket(IpMsgCommands.BrEntry, userName)
         if (transport.supportsBroadcast) {
-            transport.broadcast(pkt.toBytes(charset), transport.localPort)
+            transport.broadcast(pkt.toBytes(charset), peerPort())
         }
     }
 
     suspend fun announceOffline() {
         val pkt = buildPacket(IpMsgCommands.BrExit, userName)
         if (transport.supportsBroadcast) {
-            transport.broadcast(pkt.toBytes(charset), transport.localPort)
+            transport.broadcast(pkt.toBytes(charset), peerPort())
         }
     }
 
     suspend fun sendText(targetIp: InetAddress, text: String, requireAck: Boolean = true) {
         val cmd = IpMsgCommands.SendMsg or (if (requireAck) IpMsgCommands.SendCheckOpt else 0)
         val pkt = buildPacket(cmd, text)
-        transport.send(pkt.toBytes(charset), InetSocketAddress(targetIp, transport.localPort))
+        transport.send(pkt.toBytes(charset), InetSocketAddress(targetIp, peerPort()))
     }
 
     suspend fun sendFile(targetIp: InetAddress, filePath: String, message: String? = null) {
@@ -196,7 +207,7 @@ class IpMsgService(
             extra = message ?: file.name,
             fileExtra = attach.toExtraString()
         )
-        transport.send(pkt.toBytes(charset), InetSocketAddress(targetIp, transport.localPort))
+        transport.send(pkt.toBytes(charset), InetSocketAddress(targetIp, peerPort()))
         // WS：等对方 GETFILEDATA 再推
     }
 
@@ -225,7 +236,7 @@ class IpMsgService(
     private suspend fun downloadViaTcp(ip: InetAddress, pNo: Long, info: FileAttachInfo, savePath: String) {
         withContext(Dispatchers.IO) {
             try {
-                Socket(ip, transport.localPort).use { sock ->
+                Socket(ip, peerPort()).use { sock ->
                     sock.soTimeout = 60_000
                     val extra = "${pNo.toString(16)}:${info.fileId.toString(16)}:0"
                     val pkt = buildPacket(IpMsgCommands.GetFileData, extra)
@@ -412,7 +423,7 @@ class IpMsgService(
     private suspend fun replyAnsEntry(ip: InetAddress) {
         try {
             val pkt = buildPacket(IpMsgCommands.AnsEntry, userName)
-            transport.send(pkt.toBytes(charset), InetSocketAddress(ip, transport.localPort))
+            transport.send(pkt.toBytes(charset), InetSocketAddress(ip, peerPort()))
         } catch (_: Exception) {
         }
     }
@@ -420,7 +431,7 @@ class IpMsgService(
     private suspend fun replyRecvMsg(ip: InetAddress, no: Long) {
         try {
             val pkt = buildPacket(IpMsgCommands.RecvMsg, no.toString())
-            transport.send(pkt.toBytes(charset), InetSocketAddress(ip, transport.localPort))
+            transport.send(pkt.toBytes(charset), InetSocketAddress(ip, peerPort()))
         } catch (_: Exception) {
         }
     }
