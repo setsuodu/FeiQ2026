@@ -40,8 +40,39 @@
                                     HorizontalAlignment="{Binding Align}"
                                     Background="{Binding BubbleBrush}">
                                 <StackPanel>
+                                    <!-- 图片预览 -->
+                                    <Border Visibility="{Binding ImageVisibility}" Margin="0,0,0,4"
+                                            CornerRadius="4" ClipToBounds="True" MaxWidth="240" MaxHeight="180"
+                                            Cursor="Hand" MouseLeftButtonUp="Media_Click">
+                                        <Image Source="{Binding ImageSource}" Stretch="Uniform"
+                                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    </Border>
+
+                                    <!-- 文件/音乐/视频卡片 -->
+                                    <Border Visibility="{Binding FileCardVisibility}" 
+                                            Background="#F8F8F8" BorderBrush="#E0E0E0" BorderThickness="1"
+                                            CornerRadius="6" Padding="10,8" Margin="0,0,0,4"
+                                            Cursor="Hand" MouseLeftButtonUp="Media_Click">
+                                        <DockPanel>
+                                            <TextBlock Text="{Binding TypeIcon}" FontSize="28"
+                                                       VerticalAlignment="Center" Margin="0,0,10,0"
+                                                       DockPanel.Dock="Left"/>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding FileName}" FontSize="13" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis" MaxWidth="220"/>
+                                                <TextBlock Text="{Binding TypeLabel}" FontSize="11" Foreground="#888"
+                                                           Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+
+                                    <!-- 普通文本 / URL -->
                                     <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="13"
-                                               Foreground="{Binding TextBrush}"/>
+                                               Foreground="{Binding TextBrush}"
+                                               Visibility="{Binding TextVisibility}"
+                                               Cursor="{Binding TextCursor}"
+                                               MouseLeftButtonUp="Url_Click"/>
+
                                     <TextBlock Text="{Binding Time}" FontSize="10" Foreground="#999"
                                                HorizontalAlignment="Right" Margin="0,3,0,0"/>
                                 </StackPanel>

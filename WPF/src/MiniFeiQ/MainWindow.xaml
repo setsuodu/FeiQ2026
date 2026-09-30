@@ -7,6 +7,7 @@
         MinWidth="260" MinHeight="420"
         WindowStartupLocation="CenterScreen"
         Background="#F0F2F5"
+        ShowInTaskbar="False"
         Closing="Window_Closing"
         StateChanged="Window_StateChanged">
     <Window.Resources>

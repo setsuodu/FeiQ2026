@@ -246,21 +246,45 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>
+    /// 图片/音乐/视频：自动接收并直接展示，不弹确认框、不刷系统提示。
+    /// 其它类型文件：弹确认框，走传统接收流程。
+    /// </summary>
+    private static bool IsAutoReceiveMedia(string fileName)
+    {
+        var kind = ChatWindow.DetectFileKind(fileName);
+        return kind is FileKind.Image or FileKind.Audio or FileKind.Video;
+    }
+
     private void OnFileOffered(IncomingFileOffer offer)
     {
         Dispatcher.Invoke(async () =>
         {
+            if (_service == null) return;
+
+            var fileName = offer.Info.FileName;
+            var autoMedia = IsAutoReceiveMedia(fileName);
+
+            if (autoMedia)
+            {
+                // 媒体文件：静默自动接收，打开聊天窗口（不写“正在接收”）
+                OpenChat(offer.From);
+                await _service.AcceptFileAsync(offer);
+                return;
+            }
+
+            // 普通文件：弹出确认
             var sizeStr = FormatSize(offer.Info.Size);
             var result = System.Windows.MessageBox.Show(
-                $"收到来自 {offer.From.Name} 的文件：\n\n{offer.Info.FileName}\n大小：{sizeStr}\n\n是否接收？",
+                $"收到来自 {offer.From.Name} 的文件：\n\n{fileName}\n大小：{sizeStr}\n\n是否接收？",
                 "FeiQ 2026 文件传输",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
 
-            if (result == MessageBoxResult.Yes && _service != null)
+            if (result == MessageBoxResult.Yes)
             {
                 var chat = OpenChat(offer.From);
-                chat?.AppendSystem($"正在接收文件 {offer.Info.FileName} ...");
+                chat?.AppendSystem($"正在接收文件 {fileName} ...");
                 await _service.AcceptFileAsync(offer);
             }
         });
@@ -270,15 +294,47 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            foreach (var chat in _chats.Values)
+            var isMedia = IsAutoReceiveMedia(p.FileName);
+
+            if (p.Error != null)
             {
-                if (!chat.IsLoaded) continue;
-                if (p.Error != null)
-                    chat.AppendSystem($"文件 {p.FileName} 失败：{p.Error}");
-                else if (p.Done)
-                    chat.AppendSystem(p.SavedPath != null
-                        ? $"文件已保存：{p.SavedPath}"
-                        : $"文件发送完成：{p.FileName}");
+                // 错误仍提示（媒体/普通都提示）
+                var msg = $"文件 {p.FileName} 失败：{p.Error}";
+                foreach (var chat in _chats.Values.Where(x => x.IsLoaded))
+                    chat.AppendSystem(msg);
+                return;
+            }
+
+            if (!p.Done) return;
+
+            if (p.SavedPath != null)
+            {
+                // 接收完成
+                if (isMedia)
+                {
+                    // 媒体：只展示富媒体气泡，不写“已保存”等系统消息
+                    foreach (var chat in _chats.Values.Where(x => x.IsLoaded))
+                        chat.AppendReceivedFile(p.SavedPath, p.FileName);
+                }
+                else
+                {
+                    // 普通文件：系统提示 + 富媒体气泡（若能识别）
+                    foreach (var chat in _chats.Values.Where(x => x.IsLoaded))
+                    {
+                        chat.AppendSystem($"文件已保存：{p.SavedPath}");
+                        chat.AppendReceivedFile(p.SavedPath, p.FileName);
+                    }
+                }
+            }
+            else
+            {
+                // 发送完成：媒体不刷系统消息，普通文件才提示
+                if (!isMedia)
+                {
+                    var msg = $"文件发送完成：{p.FileName}";
+                    foreach (var chat in _chats.Values.Where(x => x.IsLoaded))
+                        chat.AppendSystem(msg);
+                }
             }
         });
     }
