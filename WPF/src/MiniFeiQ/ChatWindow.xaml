@@ -23,6 +23,16 @@
                     <TextBlock x:Name="AvatarText" Text="?" Foreground="White" FontWeight="Bold"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
+                <Button Content="⋮" Width="32" Height="28" FontSize="16" Padding="0"
+                        DockPanel.Dock="Right" VerticalAlignment="Center"
+                        Background="Transparent" BorderThickness="0" Cursor="Hand"
+                        Click="Menu_Click" ToolTip="更多">
+                    <Button.ContextMenu>
+                        <ContextMenu x:Name="TitleMenu">
+                            <MenuItem Header="清空聊天记录" Click="ClearHistory_Click"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock x:Name="PeerNameText" Text="好友" FontSize="15" FontWeight="SemiBold"/>
                     <TextBlock x:Name="PeerIpText" Text="" FontSize="11" Foreground="#888"/>
@@ -36,47 +46,93 @@
                 <ItemsControl x:Name="MsgList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Margin="4,3" Padding="10,7" CornerRadius="6" MaxWidth="360"
-                                    HorizontalAlignment="{Binding Align}"
-                                    Background="{Binding BubbleBrush}">
-                                <StackPanel>
-                                    <!-- 图片预览 -->
-                                    <Border Visibility="{Binding ImageVisibility}" Margin="0,0,0,4"
-                                            CornerRadius="4" ClipToBounds="True" MaxWidth="240" MaxHeight="180"
-                                            Cursor="Hand" MouseLeftButtonUp="Media_Click">
-                                        <Image Source="{Binding ImageSource}" Stretch="Uniform"
-                                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <Grid Margin="0,4">
+                                <!-- 系统消息：居中，无头像 -->
+                                <Border HorizontalAlignment="Center"
+                                        Visibility="{Binding SystemVisibility}"
+                                        Background="#E0E0E0" CornerRadius="6" Padding="10,5" MaxWidth="360">
+                                    <TextBlock Text="{Binding Text}" FontSize="12" Foreground="#666" TextWrapping="Wrap"
+                                               TextAlignment="Center"/>
+                                </Border>
+
+                                <!-- 普通/富媒体消息：三列布局 左头像 | 气泡 | 右头像 -->
+                                <Grid Visibility="{Binding RowVisibility}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- 对方头像（左列） -->
+                                    <Border Grid.Column="0" Width="36" Height="36" CornerRadius="18"
+                                            Background="{Binding PeerAvatarBg}"
+                                            Margin="0,0,8,0" VerticalAlignment="Top"
+                                            Visibility="{Binding PeerAvatarVisibility}">
+                                        <TextBlock Text="{Binding PeerAvatarLetter}" Foreground="White"
+                                                   FontWeight="Bold" FontSize="14"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
 
-                                    <!-- 文件/音乐/视频卡片 -->
-                                    <Border Visibility="{Binding FileCardVisibility}" 
-                                            Background="#F8F8F8" BorderBrush="#E0E0E0" BorderThickness="1"
-                                            CornerRadius="6" Padding="10,8" Margin="0,0,0,4"
-                                            Cursor="Hand" MouseLeftButtonUp="Media_Click">
-                                        <DockPanel>
-                                            <TextBlock Text="{Binding TypeIcon}" FontSize="28"
-                                                       VerticalAlignment="Center" Margin="0,0,10,0"
-                                                       DockPanel.Dock="Left"/>
-                                            <StackPanel VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding FileName}" FontSize="13" FontWeight="SemiBold"
-                                                           TextTrimming="CharacterEllipsis" MaxWidth="220"/>
-                                                <TextBlock Text="{Binding TypeLabel}" FontSize="11" Foreground="#888"
-                                                           Margin="0,2,0,0"/>
-                                            </StackPanel>
-                                        </DockPanel>
+                                    <!-- 气泡（中列，按 Align 左右对齐） -->
+                                    <Border Grid.Column="1" Padding="10,7" CornerRadius="6" MaxWidth="320"
+                                            HorizontalAlignment="{Binding Align}"
+                                            Background="{Binding BubbleBrush}">
+                                        <Border.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="打开所在位置"
+                                                          Click="OpenFolder_Click"
+                                                          Visibility="{Binding OpenFolderVisibility}"/>
+                                            </ContextMenu>
+                                        </Border.ContextMenu>
+                                        <StackPanel>
+                                            <Border Visibility="{Binding ImageVisibility}" Margin="0,0,0,4"
+                                                    CornerRadius="4" ClipToBounds="True" MaxWidth="240" MaxHeight="180"
+                                                    Cursor="Hand" MouseLeftButtonUp="Media_Click">
+                                                <Image Source="{Binding ImageSource}" Stretch="Uniform"
+                                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                                            </Border>
+                                            <Border Visibility="{Binding FileCardVisibility}"
+                                                    Background="#F8F8F8" BorderBrush="#E0E0E0" BorderThickness="1"
+                                                    CornerRadius="6" Padding="10,8" Margin="0,0,0,4"
+                                                    Cursor="Hand" MouseLeftButtonUp="Media_Click">
+                                                <DockPanel>
+                                                    <TextBlock Text="{Binding TypeIcon}" FontSize="28"
+                                                               VerticalAlignment="Center" Margin="0,0,10,0"
+                                                               DockPanel.Dock="Left"/>
+                                                    <StackPanel VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding FileName}" FontSize="13" FontWeight="SemiBold"
+                                                                   TextTrimming="CharacterEllipsis" MaxWidth="200"/>
+                                                        <TextBlock Text="{Binding TypeLabel}" FontSize="11" Foreground="#888"
+                                                                   Margin="0,2,0,0"/>
+                                                    </StackPanel>
+                                                </DockPanel>
+                                            </Border>
+                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="13"
+                                                       Foreground="{Binding TextBrush}"
+                                                       Visibility="{Binding TextVisibility}"
+                                                       Cursor="{Binding TextCursor}"
+                                                       MouseLeftButtonUp="Url_Click"/>
+                                            <TextBlock Text="{Binding Time}" FontSize="10" Foreground="#999"
+                                                       HorizontalAlignment="Right" Margin="0,3,0,0"/>
+                                        </StackPanel>
                                     </Border>
 
-                                    <!-- 普通文本 / URL -->
-                                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="13"
-                                               Foreground="{Binding TextBrush}"
-                                               Visibility="{Binding TextVisibility}"
-                                               Cursor="{Binding TextCursor}"
-                                               MouseLeftButtonUp="Url_Click"/>
-
-                                    <TextBlock Text="{Binding Time}" FontSize="10" Foreground="#999"
-                                               HorizontalAlignment="Right" Margin="0,3,0,0"/>
-                                </StackPanel>
-                            </Border>
+                                    <!-- 自己头像（右列） -->
+                                    <Border Grid.Column="2" Width="36" Height="36" CornerRadius="18"
+                                            Background="{Binding SelfAvatarBg}"
+                                            Margin="8,0,0,0" VerticalAlignment="Top" ClipToBounds="True"
+                                            Visibility="{Binding SelfAvatarVisibility}">
+                                        <Grid>
+                                            <Image Source="{Binding SelfAvatarImage}" Stretch="UniformToFill"
+                                                   Visibility="{Binding SelfAvatarImageVisibility}"/>
+                                            <TextBlock Text="{Binding SelfAvatarLetter}" Foreground="White"
+                                                       FontWeight="Bold" FontSize="14"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Visibility="{Binding SelfAvatarLetterVisibility}"/>
+                                        </Grid>
+                                    </Border>
+                                </Grid>
+                            </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -91,15 +147,16 @@
             </StackPanel>
         </Border>
 
-        <!-- 输入区 -->
+        <!-- 输入区：Enter 发送，Shift+Enter 换行 -->
         <Border Grid.Row="3" Background="White" Padding="8">
             <DockPanel>
-                <Button DockPanel.Dock="Right" Content="发送(S)" Width="72" Height="32" Margin="8,0,0,0"
-                        Click="Send_Click" IsDefault="True"
+                <Button DockPanel.Dock="Right" Content="发送" Width="72" Height="32" Margin="8,0,0,0"
+                        Click="Send_Click"
                         Background="#12B7F5" Foreground="White" BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"/>
                 <TextBox x:Name="Input" AcceptsReturn="True" TextWrapping="Wrap"
                          MinHeight="56" MaxHeight="120" VerticalScrollBarVisibility="Auto"
-                         BorderBrush="#DDD" Padding="6"/>
+                         BorderBrush="#DDD" Padding="6"
+                         PreviewKeyDown="Input_PreviewKeyDown"/>
             </DockPanel>
         </Border>
     </Grid>

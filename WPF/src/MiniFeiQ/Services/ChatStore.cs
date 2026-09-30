@@ -94,5 +94,22 @@ public sealed class ChatStore : IDisposable
         return list;
     }
 
+    /// <summary>清空与指定 peer 的本地聊天记录</summary>
+    public void Clear(string peerKey)
+    {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM messages WHERE peer_key = $k";
+        cmd.Parameters.AddWithValue("$k", peerKey);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>清空全部聊天记录</summary>
+    public void ClearAll()
+    {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM messages";
+        cmd.ExecuteNonQuery();
+    }
+
     public void Dispose() => _conn.Dispose();
 }

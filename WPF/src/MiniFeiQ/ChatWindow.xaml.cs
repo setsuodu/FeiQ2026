@@ -14,6 +14,9 @@ using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
 using WpfVisibility = System.Windows.Visibility;
 using WpfCursor = System.Windows.Input.Cursor;
 using WpfCursors = System.Windows.Input.Cursors;
+using WpfButton = System.Windows.Controls.Button;
+using WpfMenuItem = System.Windows.Controls.MenuItem;
+using WpfContextMenu = System.Windows.Controls.ContextMenu;
 
 namespace MiniFeiQ;
 
@@ -25,6 +28,9 @@ public partial class ChatWindow : Window
     private readonly ObservableCollection<ChatBubble> _messages = new();
     private readonly Func<Peer, string, Task>? _sendText;
     private readonly Func<Peer, string, Task>? _sendFile;
+    private readonly string _peerLetter;
+    private readonly string _selfLetter;
+    private readonly ImageSource? _selfAvatarImage;
 
     private static readonly HashSet<string> ImageExts = new(StringComparer.OrdinalIgnoreCase)
         { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif" };
@@ -52,13 +58,39 @@ public partial class ChatWindow : Window
         _sendText = sendText;
         _sendFile = sendFile;
 
+        _peerLetter = string.IsNullOrEmpty(peer.Name) ? "?" : peer.Name[..1].ToUpperInvariant();
+        var settings = AppSettings.Load();
+        var selfName = settings.UserName;
+        _selfLetter = string.IsNullOrEmpty(selfName) ? "我" : selfName[..1].ToUpperInvariant();
+        _selfAvatarImage = LoadAvatarImage(settings.AvatarPath);
+
         Title = $"{peer.Name} - FeiQ 2026";
         PeerNameText.Text = peer.Name;
         PeerIpText.Text = peer.Ip.ToString();
-        AvatarText.Text = string.IsNullOrEmpty(peer.Name) ? "?" : peer.Name[..1].ToUpperInvariant();
+        AvatarText.Text = _peerLetter;
         MsgList.ItemsSource = _messages;
 
         LoadHistory();
+    }
+
+    private static ImageSource? LoadAvatarImage(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+        try
+        {
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.DecodePixelWidth = 72;
+            bmp.UriSource = new Uri(path, UriKind.Absolute);
+            bmp.EndInit();
+            bmp.Freeze();
+            return bmp;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void LoadHistory()
@@ -87,11 +119,10 @@ public partial class ChatWindow : Window
     public void AppendSystem(string text)
     {
         try { _store.Add(_peerKey, Peer.Name, "sys", text); } catch { }
-        _messages.Add(ChatBubble.System(text));
+        _messages.Add(MakeSystem(text));
         ScrollToEnd();
     }
 
-    /// <summary>收到文件保存完成后调用，展示富媒体气泡</summary>
     public void AppendReceivedFile(string filePath, string? fileName = null)
     {
         fileName ??= Path.GetFileName(filePath);
@@ -103,11 +134,21 @@ public partial class ChatWindow : Window
             FileKind.Video => $"[视频] {fileName}",
             _ => $"[文件] {fileName}"
         };
-        // 存库用带路径的格式，方便历史恢复
         var storeText = $"{note}|{filePath}";
         try { _store.Add(_peerKey, Peer.Name, "in", storeText); } catch { }
-        _messages.Add(ChatBubble.FromFile(filePath, fileName, kind, isOutgoing: false));
+        _messages.Add(MakeFileBubble(filePath, fileName, kind, isOutgoing: false));
         ScrollToEnd();
+    }
+
+    private void Input_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        // Enter 发送；Shift+Enter 换行
+        if (e.Key == System.Windows.Input.Key.Enter
+            && System.Windows.Input.Keyboard.Modifiers != System.Windows.Input.ModifierKeys.Shift)
+        {
+            e.Handled = true;
+            Send_Click(sender, new RoutedEventArgs());
+        }
     }
 
     private async void Send_Click(object sender, RoutedEventArgs e)
@@ -153,10 +194,9 @@ public partial class ChatWindow : Window
                 FileKind.Video => $"[视频] {name}",
                 _ => $"[文件] {name}"
             };
-            // 存库带本地路径，方便自己侧预览
             var storeText = $"{note}|{path}";
             try { _store.Add(_peerKey, Peer.Name, "out", storeText); } catch { }
-            _messages.Add(ChatBubble.FromFile(path, name, kind, isOutgoing: true));
+            _messages.Add(MakeFileBubble(path, name, kind, isOutgoing: true));
             ScrollToEnd();
         }
         catch (Exception ex)
@@ -166,10 +206,37 @@ public partial class ChatWindow : Window
         }
     }
 
+    private void Menu_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is WpfButton btn && btn.ContextMenu != null)
+        {
+            btn.ContextMenu.PlacementTarget = btn;
+            btn.ContextMenu.IsOpen = true;
+        }
+    }
+
+    private void ClearHistory_Click(object sender, RoutedEventArgs e)
+    {
+        var result = System.Windows.MessageBox.Show(
+            $"确定清空与 {Peer.Name} 的本地聊天记录？此操作不可恢复。",
+            "清空聊天记录",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes) return;
+
+        try { _store.Clear(_peerKey); } catch { /* ignore */ }
+        _messages.Clear();
+    }
+
     private void Media_Click(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement fe && fe.DataContext is ChatBubble bubble)
         {
+            if (bubble.IsFileMissing)
+            {
+                System.Windows.MessageBox.Show("本地文件已失效或不存在。", "FeiQ 2026");
+                return;
+            }
             var path = bubble.MediaPath;
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
             try
@@ -196,6 +263,30 @@ public partial class ChatWindow : Window
         }
     }
 
+    private void OpenFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is WpfMenuItem mi && mi.Parent is WpfContextMenu cm
+            && cm.PlacementTarget is FrameworkElement fe
+            && fe.DataContext is ChatBubble bubble
+            && !string.IsNullOrEmpty(bubble.MediaPath)
+            && File.Exists(bubble.MediaPath))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = $"/select,\"{bubble.MediaPath}\"",
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show($"无法打开所在位置：{ex.Message}", "FeiQ 2026");
+            }
+        }
+    }
+
     private void ScrollToEnd()
     {
         Dispatcher.BeginInvoke(() => MsgScroll.ScrollToEnd());
@@ -204,8 +295,6 @@ public partial class ChatWindow : Window
     private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
     {
     }
-
-    // ---------- 类型识别 ----------
 
     internal static FileKind DetectFileKind(string fileNameOrPath)
     {
@@ -216,20 +305,17 @@ public partial class ChatWindow : Window
         return FileKind.File;
     }
 
-    private static ChatBubble ParseStoredMessage(string direction, string text, DateTime? at = null)
+    private ChatBubble ParseStoredMessage(string direction, string text, DateTime? at = null)
     {
-        // 系统消息
         if (direction == "sys")
-            return ChatBubble.System(text, at);
+            return MakeSystem(text, at);
 
-        // 带本地路径的富媒体： [图片] name|/path/to/file
         if (text.StartsWith("[") && text.Contains('|'))
         {
             var pipe = text.LastIndexOf('|');
             var head = text[..pipe];
             var path = text[(pipe + 1)..];
             var name = Path.GetFileName(path);
-            // 从头部提取类型
             FileKind kind = FileKind.File;
             if (head.StartsWith("[图片]")) kind = FileKind.Image;
             else if (head.StartsWith("[音乐]")) kind = FileKind.Audio;
@@ -237,10 +323,9 @@ public partial class ChatWindow : Window
             else if (head.StartsWith("[文件]")) kind = FileKind.File;
             else kind = DetectFileKind(name);
 
-            return ChatBubble.FromFile(path, name, kind, isOutgoing: direction == "out", at);
+            return MakeFileBubble(path, name, kind, isOutgoing: direction == "out", at);
         }
 
-        // 纯 [文件] name （旧格式，无路径）
         if (text.StartsWith("[文件]") || text.StartsWith("[图片]") || text.StartsWith("[音乐]") || text.StartsWith("[视频]"))
         {
             var name = text;
@@ -249,20 +334,120 @@ public partial class ChatWindow : Window
             else if (text.StartsWith("[音乐] ")) name = text[5..].Trim();
             else if (text.StartsWith("[视频] ")) name = text[5..].Trim();
             var kind = DetectFileKind(name);
-            return ChatBubble.FromFile(null, name, kind, isOutgoing: direction == "out", at);
+            return MakeFileBubble(null, name, kind, isOutgoing: direction == "out", at);
         }
 
-        // URL 检测
         var m = UrlRegex.Match(text);
         if (m.Success && m.Value.Length >= 10 && (text.Trim() == m.Value || text.Trim().StartsWith("http")))
         {
-            return ChatBubble.FromUrl(m.Value, isOutgoing: direction == "out", at);
+            return MakeUrlBubble(m.Value, isOutgoing: direction == "out", at);
         }
 
-        // 普通文本
         return direction == "out"
-            ? ChatBubble.Outgoing(text, at)
-            : ChatBubble.Incoming(text, at);
+            ? MakeTextBubble(text, isOutgoing: true, at)
+            : MakeTextBubble(text, isOutgoing: false, at);
+    }
+
+    private ChatBubble MakeSystem(string text, DateTime? at = null) => new()
+    {
+        Text = text,
+        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
+        Align = WpfHorizontalAlignment.Center,
+        BubbleBrush = new SolidColorBrush(MediaColor.FromRgb(0xE0, 0xE0, 0xE0)),
+        TextBrush = new SolidColorBrush(MediaColor.FromRgb(0x66, 0x66, 0x66)),
+        Kind = FileKind.Text,
+        IsSystem = true
+    };
+
+    private ChatBubble MakeTextBubble(string text, bool isOutgoing, DateTime? at = null) => new()
+    {
+        Text = text,
+        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
+        Align = isOutgoing ? WpfHorizontalAlignment.Right : WpfHorizontalAlignment.Left,
+        BubbleBrush = isOutgoing
+            ? new SolidColorBrush(MediaColor.FromRgb(0x95, 0xEC, 0x69))
+            : MediaBrushes.White,
+        TextBrush = MediaBrushes.Black,
+        Kind = FileKind.Text,
+        IsOutgoing = isOutgoing,
+        PeerAvatarLetter = _peerLetter,
+        SelfAvatarLetter = _selfLetter,
+        SelfAvatarImage = _selfAvatarImage
+    };
+
+    private ChatBubble MakeUrlBubble(string url, bool isOutgoing, DateTime? at = null) => new()
+    {
+        Text = "🔗 " + url,
+        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
+        Align = isOutgoing ? WpfHorizontalAlignment.Right : WpfHorizontalAlignment.Left,
+        BubbleBrush = isOutgoing
+            ? new SolidColorBrush(MediaColor.FromRgb(0x95, 0xEC, 0x69))
+            : MediaBrushes.White,
+        TextBrush = new SolidColorBrush(MediaColor.FromRgb(0x12, 0xB7, 0xF5)),
+        Kind = FileKind.Url,
+        MediaPath = url,
+        IsOutgoing = isOutgoing,
+        PeerAvatarLetter = _peerLetter,
+        SelfAvatarLetter = _selfLetter,
+        SelfAvatarImage = _selfAvatarImage
+    };
+
+    private ChatBubble MakeFileBubble(string? path, string fileName, FileKind kind, bool isOutgoing, DateTime? at = null)
+    {
+        var missing = !string.IsNullOrEmpty(path) && !File.Exists(path);
+
+        ImageSource? img = null;
+        if (!missing && kind == FileKind.Image && !string.IsNullOrEmpty(path))
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 480;
+                bmp.UriSource = new Uri(path, UriKind.Absolute);
+                bmp.EndInit();
+                bmp.Freeze();
+                img = bmp;
+            }
+            catch { /* fall to card */ }
+        }
+
+        var (icon, label) = kind switch
+        {
+            FileKind.Image => ("🖼️", "图片"),
+            FileKind.Audio => ("🎵", "音乐"),
+            FileKind.Video => ("🎬", "视频"),
+            _ => ("📄", "文件")
+        };
+
+        if (missing)
+        {
+            icon = "⚠️";
+            label = "文件已失效";
+        }
+
+        return new ChatBubble
+        {
+            Text = missing ? $"⚠️ {fileName}（已失效）" : $"{icon} {fileName}",
+            Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
+            Align = isOutgoing ? WpfHorizontalAlignment.Right : WpfHorizontalAlignment.Left,
+            BubbleBrush = isOutgoing
+                ? new SolidColorBrush(MediaColor.FromRgb(0x95, 0xEC, 0x69))
+                : MediaBrushes.White,
+            TextBrush = MediaBrushes.Black,
+            Kind = kind,
+            MediaPath = path,
+            FileName = fileName,
+            TypeIcon = icon,
+            TypeLabel = label,
+            ImageSource = img,
+            IsOutgoing = isOutgoing,
+            IsFileMissing = missing,
+            PeerAvatarLetter = _peerLetter,
+            SelfAvatarLetter = _selfLetter,
+            SelfAvatarImage = _selfAvatarImage
+        };
     }
 }
 
@@ -291,8 +476,31 @@ public sealed class ChatBubble
     public string TypeLabel { get; init; } = "";
     public ImageSource? ImageSource { get; init; }
 
+    public bool IsSystem { get; init; }
+    public bool IsOutgoing { get; init; }
+    public bool IsFileMissing { get; init; }
+    public string PeerAvatarLetter { get; init; } = "?";
+    public string SelfAvatarLetter { get; init; } = "我";
+    public ImageSource? SelfAvatarImage { get; init; }
+
+    public MediaBrush PeerAvatarBg { get; } = new SolidColorBrush(MediaColor.FromRgb(0x12, 0xB7, 0xF5));
+    public MediaBrush SelfAvatarBg { get; } = new SolidColorBrush(MediaColor.FromRgb(0x07, 0xC1, 0x60));
+
+    public WpfVisibility SystemVisibility => IsSystem ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+    public WpfVisibility RowVisibility => IsSystem ? WpfVisibility.Collapsed : WpfVisibility.Visible;
+
+    public WpfVisibility PeerAvatarVisibility =>
+        !IsSystem && !IsOutgoing ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+    public WpfVisibility SelfAvatarVisibility =>
+        !IsSystem && IsOutgoing ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+
+    public WpfVisibility SelfAvatarImageVisibility =>
+        SelfAvatarImage != null ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+    public WpfVisibility SelfAvatarLetterVisibility =>
+        SelfAvatarImage == null ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+
     public WpfVisibility ImageVisibility =>
-        Kind == FileKind.Image && ImageSource != null
+        !IsFileMissing && Kind == FileKind.Image && ImageSource != null
             ? WpfVisibility.Visible
             : WpfVisibility.Collapsed;
 
@@ -300,9 +508,9 @@ public sealed class ChatBubble
     {
         get
         {
+            if (IsFileMissing) return WpfVisibility.Visible;
             if (Kind == FileKind.Audio || Kind == FileKind.Video || Kind == FileKind.File)
                 return WpfVisibility.Visible;
-            // 图片加载失败时也显示卡片
             if (Kind == FileKind.Image && ImageSource == null)
                 return WpfVisibility.Visible;
             return WpfVisibility.Collapsed;
@@ -317,91 +525,8 @@ public sealed class ChatBubble
     public WpfCursor TextCursor =>
         Kind == FileKind.Url ? WpfCursors.Hand : WpfCursors.Arrow;
 
-    public static ChatBubble Incoming(string text, DateTime? at = null) => new()
-    {
-        Text = text,
-        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
-        Align = WpfHorizontalAlignment.Left,
-        BubbleBrush = MediaBrushes.White,
-        TextBrush = MediaBrushes.Black,
-        Kind = FileKind.Text
-    };
-
-    public static ChatBubble Outgoing(string text, DateTime? at = null) => new()
-    {
-        Text = text,
-        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
-        Align = WpfHorizontalAlignment.Right,
-        BubbleBrush = new SolidColorBrush(MediaColor.FromRgb(0x95, 0xEC, 0x69)),
-        TextBrush = MediaBrushes.Black,
-        Kind = FileKind.Text
-    };
-
-    public static ChatBubble System(string text, DateTime? at = null) => new()
-    {
-        Text = text,
-        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
-        Align = WpfHorizontalAlignment.Center,
-        BubbleBrush = new SolidColorBrush(MediaColor.FromRgb(0xE0, 0xE0, 0xE0)),
-        TextBrush = new SolidColorBrush(MediaColor.FromRgb(0x66, 0x66, 0x66)),
-        Kind = FileKind.Text
-    };
-
-    public static ChatBubble FromUrl(string url, bool isOutgoing, DateTime? at = null) => new()
-    {
-        Text = "🔗 " + url,
-        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
-        Align = isOutgoing ? WpfHorizontalAlignment.Right : WpfHorizontalAlignment.Left,
-        BubbleBrush = isOutgoing
-            ? new SolidColorBrush(MediaColor.FromRgb(0x95, 0xEC, 0x69))
-            : MediaBrushes.White,
-        TextBrush = new SolidColorBrush(MediaColor.FromRgb(0x12, 0xB7, 0xF5)),
-        Kind = FileKind.Url,
-        MediaPath = url
-    };
-
-    public static ChatBubble FromFile(string? path, string fileName, FileKind kind, bool isOutgoing, DateTime? at = null)
-    {
-        ImageSource? img = null;
-        if (kind == FileKind.Image && !string.IsNullOrEmpty(path) && File.Exists(path))
-        {
-            try
-            {
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.DecodePixelWidth = 480;
-                bmp.UriSource = new Uri(path, UriKind.Absolute);
-                bmp.EndInit();
-                bmp.Freeze();
-                img = bmp;
-            }
-            catch { /* fall to card */ }
-        }
-
-        var (icon, label) = kind switch
-        {
-            FileKind.Image => ("🖼️", "图片"),
-            FileKind.Audio => ("🎵", "音乐"),
-            FileKind.Video => ("🎬", "视频"),
-            _ => ("📄", "文件")
-        };
-
-        return new ChatBubble
-        {
-            Text = $"{icon} {fileName}",
-            Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
-            Align = isOutgoing ? WpfHorizontalAlignment.Right : WpfHorizontalAlignment.Left,
-            BubbleBrush = isOutgoing
-                ? new SolidColorBrush(MediaColor.FromRgb(0x95, 0xEC, 0x69))
-                : MediaBrushes.White,
-            TextBrush = MediaBrushes.Black,
-            Kind = kind,
-            MediaPath = path,
-            FileName = fileName,
-            TypeIcon = icon,
-            TypeLabel = label,
-            ImageSource = img
-        };
-    }
+    public WpfVisibility OpenFolderVisibility =>
+        !IsFileMissing && !string.IsNullOrEmpty(MediaPath) && File.Exists(MediaPath) && Kind != FileKind.Url
+            ? WpfVisibility.Visible
+            : WpfVisibility.Collapsed;
 }
