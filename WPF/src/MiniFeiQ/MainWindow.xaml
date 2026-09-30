@@ -45,9 +45,14 @@
 
         <Border Grid.Row="0" Background="#12B7F5" Padding="12,14">
             <DockPanel>
-                <Border Width="48" Height="48" CornerRadius="24" Background="White" DockPanel.Dock="Left" Margin="0,0,10,0">
-                    <TextBlock Text="FQ" FontWeight="Bold" FontSize="16" Foreground="#12B7F5"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Border x:Name="AvatarBorder" Width="48" Height="48" CornerRadius="24" Background="White"
+                        DockPanel.Dock="Left" Margin="0,0,10,0" Cursor="Hand" ClipToBounds="True"
+                        MouseLeftButtonUp="Avatar_Click" ToolTip="点击打开设置">
+                    <Grid>
+                        <TextBlock x:Name="AvatarLetterText" Text="FQ" FontWeight="Bold" FontSize="16" Foreground="#12B7F5"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Image x:Name="SelfAvatarImage" Stretch="UniformToFill" Visibility="Collapsed"/>
+                    </Grid>
                 </Border>
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock x:Name="SelfNameText" Text="FeiQ 2026" Foreground="White" FontSize="15" FontWeight="SemiBold"/>

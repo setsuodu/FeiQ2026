@@ -12,14 +12,22 @@ namespace MiniFeiQ;
 public partial class ChatWindow : Window
 {
     public Peer Peer { get; }
+    private readonly ChatStore _store;
+    private readonly string _peerKey;
     private readonly ObservableCollection<ChatBubble> _messages = new();
     private readonly Func<Peer, string, Task>? _sendText;
     private readonly Func<Peer, string, Task>? _sendFile;
 
-    public ChatWindow(Peer peer, Func<Peer, string, Task>? sendText, Func<Peer, string, Task>? sendFile)
+    public ChatWindow(
+        Peer peer,
+        ChatStore store,
+        Func<Peer, string, Task>? sendText,
+        Func<Peer, string, Task>? sendFile)
     {
         InitializeComponent();
         Peer = peer;
+        _store = store;
+        _peerKey = $"{peer.Name}|{peer.Ip}";
         _sendText = sendText;
         _sendFile = sendFile;
 
@@ -28,16 +36,41 @@ public partial class ChatWindow : Window
         PeerIpText.Text = peer.Ip.ToString();
         AvatarText.Text = string.IsNullOrEmpty(peer.Name) ? "?" : peer.Name[..1].ToUpperInvariant();
         MsgList.ItemsSource = _messages;
+
+        LoadHistory();
     }
 
-    public void AppendIncoming(string text)
+    private void LoadHistory()
     {
+        try
+        {
+            foreach (var row in _store.GetRecent(_peerKey, 200))
+            {
+                _messages.Add(row.Direction switch
+                {
+                    "out" => ChatBubble.Outgoing(row.Text, row.CreatedAt),
+                    "sys" => ChatBubble.System(row.Text, row.CreatedAt),
+                    _ => ChatBubble.Incoming(row.Text, row.CreatedAt)
+                });
+            }
+            ScrollToEnd();
+        }
+        catch { /* ignore */ }
+    }
+
+    public void AppendIncoming(string text, bool persist = true)
+    {
+        if (persist)
+        {
+            try { _store.Add(_peerKey, Peer.Name, "in", text); } catch { }
+        }
         _messages.Add(ChatBubble.Incoming(text));
         ScrollToEnd();
     }
 
     public void AppendSystem(string text)
     {
+        try { _store.Add(_peerKey, Peer.Name, "sys", text); } catch { }
         _messages.Add(ChatBubble.System(text));
         ScrollToEnd();
     }
@@ -49,6 +82,7 @@ public partial class ChatWindow : Window
         try
         {
             await _sendText(Peer, text);
+            try { _store.Add(_peerKey, Peer.Name, "out", text); } catch { }
             _messages.Add(ChatBubble.Outgoing(text));
             Input.Clear();
             ScrollToEnd();
@@ -75,7 +109,9 @@ public partial class ChatWindow : Window
         try
         {
             await _sendFile(Peer, path);
-            _messages.Add(ChatBubble.Outgoing($"[文件] {name}"));
+            var note = $"[文件] {name}";
+            try { _store.Add(_peerKey, Peer.Name, "out", note); } catch { }
+            _messages.Add(ChatBubble.Outgoing(note));
             ScrollToEnd();
         }
         catch (Exception ex)
@@ -92,7 +128,6 @@ public partial class ChatWindow : Window
 
     private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
     {
-        // 允许关闭，由 MainWindow 从字典移除
     }
 }
 
@@ -104,28 +139,28 @@ public sealed class ChatBubble
     public MediaBrush BubbleBrush { get; init; } = MediaBrushes.White;
     public MediaBrush TextBrush { get; init; } = MediaBrushes.Black;
 
-    public static ChatBubble Incoming(string text) => new()
+    public static ChatBubble Incoming(string text, DateTime? at = null) => new()
     {
         Text = text,
-        Time = DateTime.Now.ToString("HH:mm:ss"),
+        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
         Align = WpfHorizontalAlignment.Left,
         BubbleBrush = MediaBrushes.White,
         TextBrush = MediaBrushes.Black
     };
 
-    public static ChatBubble Outgoing(string text) => new()
+    public static ChatBubble Outgoing(string text, DateTime? at = null) => new()
     {
         Text = text,
-        Time = DateTime.Now.ToString("HH:mm:ss"),
+        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
         Align = WpfHorizontalAlignment.Right,
         BubbleBrush = new SolidColorBrush(MediaColor.FromRgb(0x95, 0xEC, 0x69)),
         TextBrush = MediaBrushes.Black
     };
 
-    public static ChatBubble System(string text) => new()
+    public static ChatBubble System(string text, DateTime? at = null) => new()
     {
         Text = text,
-        Time = DateTime.Now.ToString("HH:mm:ss"),
+        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
         Align = WpfHorizontalAlignment.Center,
         BubbleBrush = new SolidColorBrush(MediaColor.FromRgb(0xE0, 0xE0, 0xE0)),
         TextBrush = new SolidColorBrush(MediaColor.FromRgb(0x66, 0x66, 0x66))

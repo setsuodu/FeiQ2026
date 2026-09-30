@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using MiniFeiQ.Services;
 using MiniFeiQ.Transport;
 
@@ -13,6 +15,8 @@ public partial class MainWindow : Window
 {
     private readonly ObservableCollection<FriendItem> _friends = new();
     private readonly Dictionary<string, ChatWindow> _chats = new();
+    private AppSettings _settings;
+    private ChatStore _chatStore;
     private IpMsgService? _service;
     private ITransport? _transport;
     private bool _forceClose;
@@ -20,20 +24,82 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _settings = AppSettings.Load();
+        _chatStore = new ChatStore(_settings.ChatDbPath);
+
         UserList.ItemsSource = _friends;
-        SelfNameText.Text = Environment.UserName;
+        ApplyProfileUi();
+        ServerUrlBox.Text = _settings.LastServerUrl;
+        ModeBox.SelectedIndex = _settings.LastModeIndex;
+
         Loaded += async (_, _) => await StartServiceAsync();
     }
 
-    /// <summary>由托盘“退出”调用，真正关闭进程。</summary>
     public void ForceClose()
     {
         _forceClose = true;
         Close();
     }
 
+    private void ApplyProfileUi()
+    {
+        SelfNameText.Text = _settings.UserName;
+        var letter = string.IsNullOrEmpty(_settings.UserName) ? "FQ" : _settings.UserName[..1].ToUpperInvariant();
+        AvatarLetterText.Text = letter;
+
+        if (!string.IsNullOrEmpty(_settings.AvatarPath) && File.Exists(_settings.AvatarPath))
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.UriSource = new Uri(_settings.AvatarPath, UriKind.Absolute);
+                bmp.EndInit();
+                SelfAvatarImage.Source = bmp;
+                SelfAvatarImage.Visibility = Visibility.Visible;
+                AvatarLetterText.Visibility = Visibility.Collapsed;
+                return;
+            }
+            catch { /* fall through */ }
+        }
+        SelfAvatarImage.Source = null;
+        SelfAvatarImage.Visibility = Visibility.Collapsed;
+        AvatarLetterText.Visibility = Visibility.Visible;
+        AvatarLetterText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x12, 0xB7, 0xF5));
+    }
+
+    private void Avatar_Click(object sender, MouseButtonEventArgs e)
+    {
+        var dlg = new SettingsWindow(_settings) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+
+        // 重新加载（Save 已写入磁盘）
+        var oldDb = _settings.ChatDbPath;
+        _settings = AppSettings.Load();
+        ApplyProfileUi();
+
+        if (!string.Equals(oldDb, _settings.ChatDbPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _chatStore.Dispose();
+            _chatStore = new ChatStore(_settings.ChatDbPath);
+        }
+
+        // 用户名/下载目录变更：重连以生效
+        _ = RestartServiceAsync();
+    }
+
+    private async Task RestartServiceAsync()
+    {
+        await StopServiceAsync();
+        await StartServiceAsync();
+    }
+
     private async void Connect_Click(object sender, RoutedEventArgs e)
     {
+        _settings.LastServerUrl = ServerUrlBox.Text?.Trim() ?? _settings.LastServerUrl;
+        _settings.LastModeIndex = ModeBox.SelectedIndex;
+        _settings.Save();
         await StopServiceAsync();
         await StartServiceAsync();
     }
@@ -41,6 +107,8 @@ public partial class MainWindow : Window
     private async void ModeBox_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
+        _settings.LastModeIndex = ModeBox.SelectedIndex;
+        _settings.Save();
         await StopServiceAsync();
         await StartServiceAsync();
     }
@@ -68,7 +136,8 @@ public partial class MainWindow : Window
                 _transport = new UdpTransport(2425);
             }
 
-            _service = new IpMsgService(_transport);
+            _service = new IpMsgService(_transport, userName: _settings.UserName);
+            _service.DownloadDir = _settings.DownloadDir;
             _service.PeerOnline += OnPeerOnline;
             _service.PeerOffline += OnPeerOffline;
             _service.MessageReceived += OnMessageReceived;
@@ -134,9 +203,11 @@ public partial class MainWindow : Window
         Dispatcher.Invoke(() =>
         {
             var key = PeerKey(peer);
+            try { _chatStore.Add(key, peer.Name, "in", text); } catch { /* ignore db errors */ }
+
             if (_chats.TryGetValue(key, out var chat) && chat.IsLoaded)
             {
-                chat.AppendIncoming(text);
+                chat.AppendIncoming(text, persist: false);
                 if (!chat.IsActive)
                     App.Balloon($"来自 {peer.Name}", text);
             }
@@ -160,7 +231,8 @@ public partial class MainWindow : Window
 
             if (result == MessageBoxResult.Yes && _service != null)
             {
-                OpenChat(offer.From)?.AppendSystem($"正在接收文件 {offer.Info.FileName} ...");
+                var chat = OpenChat(offer.From);
+                chat?.AppendSystem($"正在接收文件 {offer.Info.FileName} ...");
                 await _service.AcceptFileAsync(offer);
             }
         });
@@ -170,7 +242,6 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            // 进度简要提示到已打开的聊天窗（若有）
             foreach (var chat in _chats.Values)
             {
                 if (!chat.IsLoaded) continue;
@@ -213,6 +284,7 @@ public partial class MainWindow : Window
 
         var win = new ChatWindow(
             peer,
+            _chatStore,
             async (p, text) =>
             {
                 if (_service == null) throw new InvalidOperationException("未连接");
@@ -272,6 +344,14 @@ public partial class MainWindow : Window
         }
         _chats.Clear();
         await StopServiceAsync();
+        try { _chatStore.Dispose(); } catch { /* ignore */ }
+        try
+        {
+            _settings.LastServerUrl = ServerUrlBox.Text?.Trim() ?? _settings.LastServerUrl;
+            _settings.LastModeIndex = ModeBox.SelectedIndex;
+            _settings.Save();
+        }
+        catch { /* ignore */ }
     }
 
     private static string FormatSize(long bytes)
@@ -283,7 +363,6 @@ public partial class MainWindow : Window
     }
 }
 
-/// <summary>好友列表绑定项</summary>
 public sealed class FriendItem
 {
     public Peer Peer { get; }
