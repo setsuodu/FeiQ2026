@@ -1,8 +1,9 @@
 using System.Collections.ObjectModel;
-using System.IO;
+using System.ComponentModel;
 using System.Windows;
-using System.Windows.Controls;
-using Microsoft.Win32;
+using System.Windows.Data;
+using System.Windows.Input;
+using System.Windows.Media;
 using MiniFeiQ.Services;
 using MiniFeiQ.Transport;
 
@@ -10,14 +11,25 @@ namespace MiniFeiQ;
 
 public partial class MainWindow : Window
 {
-    private readonly ObservableCollection<Peer> _users = new();
+    private readonly ObservableCollection<FriendItem> _friends = new();
+    private readonly Dictionary<string, ChatWindow> _chats = new();
     private IpMsgService? _service;
     private ITransport? _transport;
+    private bool _forceClose;
 
     public MainWindow()
     {
         InitializeComponent();
-        UserList.ItemsSource = _users;
+        UserList.ItemsSource = _friends;
+        SelfNameText.Text = Environment.UserName;
+        Loaded += async (_, _) => await StartServiceAsync();
+    }
+
+    /// <summary>由托盘“退出”调用，真正关闭进程。</summary>
+    public void ForceClose()
+    {
+        _forceClose = true;
+        Close();
     }
 
     private async void Connect_Click(object sender, RoutedEventArgs e)
@@ -26,7 +38,7 @@ public partial class MainWindow : Window
         await StartServiceAsync();
     }
 
-    private async void ModeBox_Changed(object sender, SelectionChangedEventArgs e)
+    private async void ModeBox_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
         await StopServiceAsync();
@@ -37,8 +49,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            StatusText.Text = "  连接中...";
-            StatusText.Foreground = System.Windows.Media.Brushes.Orange;
+            StatusText.Text = "连接中...";
+            StatusText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE0, 0xF7, 0xFF));
 
             var isWs = ModeBox.SelectedIndex == 1;
             if (isWs)
@@ -46,16 +58,14 @@ public partial class MainWindow : Window
                 var url = ServerUrlBox.Text?.Trim();
                 if (string.IsNullOrEmpty(url))
                 {
-                    MessageBox.Show("请填写中继地址，例如 ws://192.168.1.101:9000/ws");
+                    System.Windows.MessageBox.Show("请填写中继地址，例如 ws://192.168.1.101:9000/ws", "FeiQ 2026");
                     return;
                 }
                 _transport = new WebSocketTransport(url);
-                AppendLog($"[系统] 使用 WebSocket 中继 → {url}");
             }
             else
             {
                 _transport = new UdpTransport(2425);
-                AppendLog("[系统] 使用 UDP 局域网（飞秋2013兼容）");
             }
 
             _service = new IpMsgService(_transport);
@@ -67,16 +77,15 @@ public partial class MainWindow : Window
 
             await _service.StartAsync();
 
-            StatusText.Text = isWs ? "  已连接中继" : "  UDP 已启动";
-            StatusText.Foreground = System.Windows.Media.Brushes.Green;
-            AppendLog("[系统] 启动成功");
+            StatusText.Text = isWs ? "已连接中继" : "UDP 已启动 · 飞秋兼容";
+            StatusText.Foreground = System.Windows.Media.Brushes.White;
+            App.UpdateTrayTip($"FeiQ 2026（在线人数: {_friends.Count}）");
         }
         catch (Exception ex)
         {
-            StatusText.Text = "  连接失败";
-            StatusText.Foreground = System.Windows.Media.Brushes.Red;
-            AppendLog($"[错误] {ex.Message}");
-            MessageBox.Show($"启动失败:\n{ex.Message}", "MiniFeiQ",
+            StatusText.Text = "连接失败";
+            StatusText.Foreground = System.Windows.Media.Brushes.LightPink;
+            System.Windows.MessageBox.Show($"启动失败:\n{ex.Message}", "FeiQ 2026",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -94,16 +103,19 @@ public partial class MainWindow : Window
             _service = null;
         }
         _transport = null;
-        _users.Clear();
+        _friends.Clear();
+        UpdateOnlineCount();
     }
+
+    private static string PeerKey(Peer p) => $"{p.Name}|{p.Ip}";
 
     private void OnPeerOnline(Peer peer)
     {
         Dispatcher.Invoke(() =>
         {
-            if (_users.All(u => u.Name != peer.Name || !u.Ip.Equals(peer.Ip)))
-                _users.Add(peer);
-            AppendLog($"[上线] {peer.Name}");
+            if (_friends.All(f => PeerKey(f.Peer) != PeerKey(peer)))
+                _friends.Add(new FriendItem(peer));
+            UpdateOnlineCount();
         });
     }
 
@@ -111,15 +123,28 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            var exist = _users.FirstOrDefault(u => u.Name == peer.Name && u.Ip.Equals(peer.Ip));
-            if (exist != null) _users.Remove(exist);
-            AppendLog($"[下线] {peer.Name}");
+            var exist = _friends.FirstOrDefault(f => PeerKey(f.Peer) == PeerKey(peer));
+            if (exist != null) _friends.Remove(exist);
+            UpdateOnlineCount();
         });
     }
 
     private void OnMessageReceived(Peer peer, string text)
     {
-        Dispatcher.Invoke(() => AppendLog($"[{peer.Name}] {text}"));
+        Dispatcher.Invoke(() =>
+        {
+            var key = PeerKey(peer);
+            if (_chats.TryGetValue(key, out var chat) && chat.IsLoaded)
+            {
+                chat.AppendIncoming(text);
+                if (!chat.IsActive)
+                    App.Balloon($"来自 {peer.Name}", text);
+            }
+            else
+            {
+                App.Balloon($"来自 {peer.Name}", text);
+            }
+        });
     }
 
     private void OnFileOffered(IncomingFileOffer offer)
@@ -127,22 +152,16 @@ public partial class MainWindow : Window
         Dispatcher.Invoke(async () =>
         {
             var sizeStr = FormatSize(offer.Info.Size);
-            AppendLog($"[文件] {offer.From.Name} 发来「{offer.Info.FileName}」({sizeStr})");
-
-            var result = MessageBox.Show(
+            var result = System.Windows.MessageBox.Show(
                 $"收到来自 {offer.From.Name} 的文件：\n\n{offer.Info.FileName}\n大小：{sizeStr}\n\n是否接收？",
-                "文件传输",
+                "FeiQ 2026 文件传输",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
 
             if (result == MessageBoxResult.Yes && _service != null)
             {
-                AppendLog($"[文件] 开始接收 {offer.Info.FileName} ...");
+                OpenChat(offer.From)?.AppendSystem($"正在接收文件 {offer.Info.FileName} ...");
                 await _service.AcceptFileAsync(offer);
-            }
-            else
-            {
-                AppendLog($"[文件] 已拒绝 {offer.Info.FileName}");
             }
         });
     }
@@ -151,108 +170,108 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            if (p.Error != null)
+            // 进度简要提示到已打开的聊天窗（若有）
+            foreach (var chat in _chats.Values)
             {
-                AppendLog($"[文件] {p.FileName} 失败：{p.Error}");
-                return;
-            }
-            if (p.Done)
-            {
-                var where = p.SavedPath != null ? $" → {p.SavedPath}" : "";
-                AppendLog($"[文件] {p.FileName} 完成 {FormatSize(p.Received)}{where}");
-            }
-            else if (p.Total > 0)
-            {
-                var pct = (int)(p.Received * 100 / p.Total);
-                // 避免刷屏：每 10% 打一次
-                if (pct % 10 == 0)
-                    AppendLog($"[文件] {p.FileName} {pct}%");
+                if (!chat.IsLoaded) continue;
+                if (p.Error != null)
+                    chat.AppendSystem($"文件 {p.FileName} 失败：{p.Error}");
+                else if (p.Done)
+                    chat.AppendSystem(p.SavedPath != null
+                        ? $"文件已保存：{p.SavedPath}"
+                        : $"文件发送完成：{p.FileName}");
             }
         });
+    }
+
+    private void UpdateOnlineCount()
+    {
+        OnlineCountText.Text = $"({_friends.Count})";
+        App.UpdateTrayTip($"FeiQ 2026（在线人数: {_friends.Count}）");
+    }
+
+    private void UserList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (UserList.SelectedItem is FriendItem item)
+            OpenChat(item.Peer);
+    }
+
+    private ChatWindow? OpenChat(Peer peer)
+    {
+        var key = PeerKey(peer);
+        if (_chats.TryGetValue(key, out var existing))
+        {
+            if (existing.IsLoaded)
+            {
+                existing.Activate();
+                if (existing.WindowState == WindowState.Minimized)
+                    existing.WindowState = WindowState.Normal;
+                return existing;
+            }
+            _chats.Remove(key);
+        }
+
+        var win = new ChatWindow(
+            peer,
+            async (p, text) =>
+            {
+                if (_service == null) throw new InvalidOperationException("未连接");
+                await _service.SendTextAsync(p.Ip, text);
+            },
+            async (p, path) =>
+            {
+                if (_service == null) throw new InvalidOperationException("未连接");
+                await _service.SendFileAsync(p.Ip, path);
+            });
+        win.Closed += (_, _) => _chats.Remove(key);
+        _chats[key] = win;
+        win.Show();
+        return win;
     }
 
     private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
         if (_service == null) return;
-        _users.Clear();
-        await _service.RefreshAsync();
-        AppendLog("[系统] 已刷新");
+        try { await _service.AnnounceOnlineAsync(); }
+        catch { /* ignore */ }
     }
 
-    private async void Send_Click(object sender, RoutedEventArgs e)
+    private void SearchBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
     {
-        if (_service == null) return;
-        var text = Input.Text?.Trim();
-        if (string.IsNullOrEmpty(text)) return;
-
-        if (ModeBox.SelectedIndex == 1)
-        {
-            await _service.SendTextAsync(System.Net.IPAddress.Loopback, text);
-            AppendLog($"[我：] {text}");
-        }
-        else
-        {
-            if (UserList.SelectedItem is not Peer peer) return;
-            await _service.SendTextAsync(peer.Ip, text);
-            AppendLog($"[我 → {peer.Name}] {text}");
-        }
-        Input.Clear();
+        var q = SearchBox.Text?.Trim() ?? "";
+        var view = CollectionViewSource.GetDefaultView(_friends);
+        view.Filter = string.IsNullOrEmpty(q)
+            ? null
+            : o => o is FriendItem f &&
+                   (f.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                    f.SubTitle.Contains(q, StringComparison.OrdinalIgnoreCase));
     }
 
-    private async void SendFile_Click(object sender, RoutedEventArgs e)
+    private void Window_StateChanged(object? sender, EventArgs e)
     {
-        if (_service == null)
+        if (WindowState == WindowState.Minimized)
         {
-            MessageBox.Show("请先连接");
+            Hide();
+            App.Balloon("FeiQ 2026", "已最小化到托盘，右键托盘图标可退出。");
+        }
+    }
+
+    private async void Window_Closing(object sender, CancelEventArgs e)
+    {
+        if (!_forceClose)
+        {
+            e.Cancel = true;
+            Hide();
+            App.Balloon("FeiQ 2026", "已最小化到托盘，右键托盘图标可退出。");
             return;
         }
 
-        var dlg = new OpenFileDialog
+        foreach (var c in _chats.Values.ToList())
         {
-            Title = "选择要发送的文件",
-            CheckFileExists = true,
-            Multiselect = false
-        };
-        if (dlg.ShowDialog() != true) return;
-
-        var path = dlg.FileName;
-        var name = Path.GetFileName(path);
-
-        try
-        {
-            if (ModeBox.SelectedIndex == 1)
-            {
-                // WS 广播发文件
-                await _service.SendFileAsync(System.Net.IPAddress.Loopback, path);
-                AppendLog($"[我：] 发送文件 {name}");
-            }
-            else
-            {
-                if (UserList.SelectedItem is not Peer peer)
-                {
-                    MessageBox.Show("请先在左侧选中接收方");
-                    return;
-                }
-                await _service.SendFileAsync(peer.Ip, path);
-                AppendLog($"[我 → {peer.Name}] 发送文件 {name}");
-            }
+            try { c.Close(); } catch { /* ignore */ }
         }
-        catch (Exception ex)
-        {
-            AppendLog($"[错误] 发文件失败：{ex.Message}");
-            MessageBox.Show(ex.Message, "发文件失败");
-        }
-    }
-
-    private async void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
-    {
+        _chats.Clear();
         await StopServiceAsync();
-    }
-
-    private void AppendLog(string line)
-    {
-        Log.AppendText($"{DateTime.Now:HH:mm:ss} {line}\n");
-        Log.ScrollToEnd();
     }
 
     private static string FormatSize(long bytes)
@@ -262,4 +281,15 @@ public partial class MainWindow : Window
         if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
         return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
     }
+}
+
+/// <summary>好友列表绑定项</summary>
+public sealed class FriendItem
+{
+    public Peer Peer { get; }
+    public string Name => Peer.Name;
+    public string SubTitle => $"{Peer.HostName} · {Peer.Ip}";
+    public string AvatarLetter => string.IsNullOrEmpty(Peer.Name) ? "?" : Peer.Name[..1].ToUpperInvariant();
+
+    public FriendItem(Peer peer) => Peer = peer;
 }

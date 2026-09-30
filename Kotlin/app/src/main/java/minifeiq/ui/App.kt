@@ -39,7 +39,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 
 @Composable
-fun MiniFeiQApp(context: Context = LocalContext.current) {
+fun FeiQ 2026App(context: Context = LocalContext.current) {
 
     val scope = rememberCoroutineScope()
 

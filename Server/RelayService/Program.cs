@@ -68,9 +68,9 @@ app.Map("/ws", async context =>
 });
 
 app.MapGet("/", () => Results.Text(
-    $"MiniFeiQ Relay Server OK\nOnline: {clients.Count}\nWS endpoint: /ws\n", "text/plain"));
+    $"FeiQ 2026 Relay Server OK\nOnline: {clients.Count}\nWS endpoint: /ws\n", "text/plain"));
 
-Console.WriteLine($"MiniFeiQ Relay 已启动  ws://0.0.0.0:{port}/ws");
+Console.WriteLine($"FeiQ 2026 Relay 已启动  ws://0.0.0.0:{port}/ws");
 Console.WriteLine("按 Ctrl+C 退出");
 app.Run();
 

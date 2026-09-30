@@ -36,7 +36,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MiniFeiQ-WPF-win-x64
+          name: FeiQ2026-WPF-win-x64
           path: publish/
           if-no-files-found: error
           retention-days: 14
@@ -45,8 +45,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/wpf/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: publish/MiniFeiQ.exe
+          files: publish/FeiQ2026.exe
           generate_release_notes: true
-          name: WPF Release ${{ github.ref_name }}
+          name: FeiQ 2026 WPF Release ${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

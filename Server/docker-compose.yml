@@ -3,8 +3,8 @@ services:
     build:
       context: ./RelayService
       dockerfile: Dockerfile
-    image: minifeiq-relay:local
-    container_name: minifeiq-relay
+    image: feiq2026-relay:local
+    container_name: feiq2026-relay
     ports:
       - "9000:9000"
     environment:

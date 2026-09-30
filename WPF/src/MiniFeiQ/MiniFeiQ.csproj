@@ -3,9 +3,15 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+    <AssemblyName>FeiQ2026</AssemblyName>
+    <RootNamespace>MiniFeiQ</RootNamespace>
+    <Product>FeiQ 2026</Product>
+    <AssemblyTitle>FeiQ 2026</AssemblyTitle>
+    <Description>FeiQ 2026 - 兼容飞秋2013的局域网/中继即时通讯</Description>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -15,7 +21,7 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.12" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\app.ico" />

@@ -1,0 +1,75 @@
+<Window x:Class="MiniFeiQ.ChatWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="聊天"
+        Icon="pack://application:,,,/Assets/app.ico"
+        Width="520" Height="560"
+        MinWidth="400" MinHeight="360"
+        WindowStartupLocation="CenterScreen"
+        Background="#F5F5F5"
+        Closing="Window_Closing">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 标题栏信息 -->
+        <Border Grid.Row="0" Background="White" BorderBrush="#E5E5E5" BorderThickness="0,0,0,1" Padding="14,10">
+            <DockPanel>
+                <Border Width="36" Height="36" CornerRadius="18" Background="#12B7F5" DockPanel.Dock="Left" Margin="0,0,10,0">
+                    <TextBlock x:Name="AvatarText" Text="?" Foreground="White" FontWeight="Bold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="PeerNameText" Text="好友" FontSize="15" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="PeerIpText" Text="" FontSize="11" Foreground="#888"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- 消息区 -->
+        <Border Grid.Row="1" Background="#EDEDED" Padding="8">
+            <ScrollViewer x:Name="MsgScroll" VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="MsgList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Margin="4,3" Padding="10,7" CornerRadius="6" MaxWidth="360"
+                                    HorizontalAlignment="{Binding Align}"
+                                    Background="{Binding BubbleBrush}">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="13"
+                                               Foreground="{Binding TextBrush}"/>
+                                    <TextBlock Text="{Binding Time}" FontSize="10" Foreground="#999"
+                                               HorizontalAlignment="Right" Margin="0,3,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <!-- 工具条 -->
+        <Border Grid.Row="2" Background="White" BorderBrush="#E5E5E5" BorderThickness="0,1,0,0" Padding="8,4">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="发送文件" Padding="10,4" Click="SendFile_Click" Margin="0,0,6,0"
+                        Background="#F0F0F0" BorderBrush="#DDD" Cursor="Hand"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 输入区 -->
+        <Border Grid.Row="3" Background="White" Padding="8">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="发送(S)" Width="72" Height="32" Margin="8,0,0,0"
+                        Click="Send_Click" IsDefault="True"
+                        Background="#12B7F5" Foreground="White" BorderThickness="0" Cursor="Hand" FontWeight="SemiBold"/>
+                <TextBox x:Name="Input" AcceptsReturn="True" TextWrapping="Wrap"
+                         MinHeight="56" MaxHeight="120" VerticalScrollBarVisibility="Auto"
+                         BorderBrush="#DDD" Padding="6"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>
