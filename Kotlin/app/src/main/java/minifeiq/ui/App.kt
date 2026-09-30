@@ -1,5 +1,7 @@
 package minifeiq.ui
-
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -237,7 +239,14 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                 }
             } else {
                 // =============== 第一层：在线用户列表（首页） ===============
-                Column(Modifier.fillMaxSize().padding(12.dp)) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()        // ← 避开状态栏/刘海，标题和按钮就被压下来了
+                        .navigationBarsPadding()    // ← 避开底部手势条
+                        .imePadding()               // ← 键盘弹出时整体上移
+                        .padding(12.dp)
+                ) {
 
                     // 标题 + 状态
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -455,7 +464,13 @@ private fun ChatScreen(
         if (logs.isNotEmpty()) listState.animateScrollToItem(logs.lastIndex)
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()        // ← 顶栏「← 返回」不再钻进刘海
+            .navigationBarsPadding()    // ← 底部输入框不再被手势条挡住
+            .imePadding()               // ← 点输入框弹出键盘时，输入框自动浮在键盘上方
+    ) {
 
         // 顶栏：返回 + 对方信息
         Row(
