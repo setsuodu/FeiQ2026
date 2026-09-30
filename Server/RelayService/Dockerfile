@@ -1,6 +1,6 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY RelayServer.csproj .
+COPY RelayService.csproj .
 RUN dotnet restore
 COPY . .
 RUN dotnet publish -c Release -o /app --self-contained false
@@ -10,4 +10,4 @@ WORKDIR /app
 COPY --from=build /app .
 EXPOSE 9000
 ENV ASPNETCORE_URLS=http://0.0.0.0:9000
-ENTRYPOINT ["dotnet", "RelayServer.dll"]
+ENTRYPOINT ["dotnet", "RelayService.dll"]

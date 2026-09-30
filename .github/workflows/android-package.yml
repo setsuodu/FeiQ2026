@@ -1,0 +1,70 @@
+name: Android Client Package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Kotlin/**'
+      - '.github/workflows/android-package.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Kotlin/**'
+      - '.github/workflows/android-package.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check Android project exists
+        id: check
+        shell: bash
+        run: |
+          if [ -f Kotlin/settings.gradle.kts ] || [ -f Kotlin/settings.gradle ] || [ -f Kotlin/app/build.gradle.kts ] || [ -f Kotlin/app/build.gradle ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Kotlin/ 下尚无 Android 工程（缺少 settings.gradle* 或 app/build.gradle*）。此 workflow 仅做占位，待项目就绪后会自动打包 APK。"
+          fi
+
+      - name: Setup JDK 17
+        if: steps.check.outputs.exists == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        if: steps.check.outputs.exists == 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        if: steps.check.outputs.exists == 'true'
+        run: chmod +x Kotlin/gradlew || true
+
+      - name: Build Release APK
+        if: steps.check.outputs.exists == 'true'
+        working-directory: Kotlin
+        run: |
+          if [ -f ./gradlew ]; then
+            ./gradlew assembleRelease --stacktrace
+          else
+            echo "No gradlew found; try system gradle if available"
+            gradle assembleRelease --stacktrace || true
+          fi
+
+      - name: Upload APK artifact
+        if: steps.check.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniFeiQ-Android
+          path: |
+            Kotlin/app/build/outputs/apk/**/*.apk
+            Kotlin/**/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
+          retention-days: 14

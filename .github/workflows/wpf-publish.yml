@@ -1,0 +1,58 @@
+name: WPF Client Package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'WPF/**'
+      - '.github/workflows/wpf-publish.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'WPF/**'
+      - '.github/workflows/wpf-publish.yml'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore WPF/src/MiniFeiQ/MiniFeiQ.csproj
+
+      - name: Publish (single-file, self-contained, win-x64)
+        run: >
+          dotnet publish WPF/src/MiniFeiQ/MiniFeiQ.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -o publish
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniFeiQ-WPF-win-x64
+          path: publish/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create Release on tag (optional)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: publish/MiniFeiQ.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
