@@ -15,6 +15,8 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 
 - [x] 消息持久化（SQLite）
 - [x] 头像设置（base64 随 UDP 包广播）
+- [ ] 镜像改名 minifeiq-relay 👉 feiq2026-relay
+- [ ] ci 和 Android & WPF Version 注入关联
 - [ ] 图片、音频、视频，独立View显示
 - [ ] 长按语音发送
 - [ ] 实时童话、会议（WebRTC）
@@ -23,6 +25,7 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 - [ ] 传输加密（TLS）
 - [ ] 群组广播消息
 - [ ] macOS/Linux 客户端
+- [ ] CA证书 或 [微软开发者登记](https://www.microsoft.com/en-us/wdsi/filesubmission)
 
 ---
 
