@@ -76,32 +76,31 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
 
     val users = remember { mutableStateListOf<Peer>() }
     val unread = remember { mutableStateMapOf<String, Int>() }
-    val chatLogs = remember { mutableStateMapOf<String, SnapshotStateList<String>>() }
+    val chatLogs = remember { mutableStateMapOf<String, SnapshotStateList<ChatUiMsg>>() }
     var pendingOffer by remember { mutableStateOf<IncomingFileOffer?>(null) }
     var activeFilePeer by remember { mutableStateOf<Peer?>(null) }
 
     fun peerKey(p: Peer) = ChatStore.peerKey(p)
 
-    fun logsFor(p: Peer): SnapshotStateList<String> =
+    fun logsFor(p: Peer): SnapshotStateList<ChatUiMsg> =
         chatLogs.getOrPut(peerKey(p)) { mutableStateListOf() }
 
     fun ensureHistory(p: Peer) {
         val key = peerKey(p)
-        if (chatLogs.containsKey(key) && chatLogs[key]!!.isNotEmpty()) return
         val list = chatLogs.getOrPut(key) { mutableStateListOf() }
-        if (list.isEmpty()) {
-            try {
-                val fmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                chatStore.recent(key).forEach { row ->
-                    val prefix = when (row.direction) {
-                        "out" -> "[我]"
-                        "sys" -> "[系统]"
-                        else -> "[${row.peerName}]"
-                    }
-                    list.add("${fmt.format(Date(row.createdAt))} $prefix ${row.body}")
-                }
-            } catch (_: Exception) { }
-        }
+        if (list.isNotEmpty()) return
+        try {
+            val fmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            chatStore.recent(key).forEach { row ->
+                list.add(
+                    ChatUiMsg(
+                        direction = row.direction,
+                        body = row.body,
+                        time = fmt.format(Date(row.createdAt))
+                    )
+                )
+            }
+        } catch (_: Exception) { }
     }
 
     fun appendLog(p: Peer?, direction: String, body: String, alsoUi: Boolean = true) {
@@ -110,12 +109,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
             val key = peerKey(p)
             try { chatStore.add(key, p.name, direction, body) } catch (_: Exception) { }
             if (alsoUi) {
-                val prefix = when (direction) {
-                    "out" -> "[我]"
-                    "sys" -> "[系统]"
-                    else -> "[${p.name}]"
-                }
-                logsFor(p).add("$ts $prefix $body")
+                logsFor(p).add(ChatUiMsg(direction = direction, body = body, time = ts))
             }
             if (direction == "in") {
                 val cur = chatPeer
@@ -124,6 +118,12 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                 }
             }
         }
+    }
+
+    fun clearChat(p: Peer) {
+        val key = peerKey(p)
+        try { chatStore.clear(key) } catch (_: Exception) { }
+        chatLogs[key]?.clear()
     }
 
     fun stopService() {
@@ -242,6 +242,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
             peer = peer,
             logs = logsFor(peer),
             onBack = { chatPeer = null },
+            onClearHistory = { clearChat(peer) },
             onSendText = { text ->
                 val svc = service
                 if (svc == null) {
@@ -647,12 +648,15 @@ private fun MeScreen(
 @Composable
 private fun ChatScreen(
     peer: Peer,
-    logs: List<String>,
+    logs: List<ChatUiMsg>,
     onBack: () -> Unit,
+    onClearHistory: () -> Unit,
     onSendText: (String) -> Unit,
     onSendFile: (Uri) -> Unit
 ) {
     var input by remember { mutableStateOf("") }
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
 
     val pickFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -689,6 +693,18 @@ private fun ChatScreen(
                     color = Color.Gray
                 )
             }
+            Box {
+                TextButton(onClick = { menuOpen = true }) { Text("···") }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("清空聊天记录") },
+                        onClick = {
+                            menuOpen = false
+                            confirmClear = true
+                        }
+                    )
+                }
+            }
         }
         HorizontalDivider()
 
@@ -699,9 +715,9 @@ private fun ChatScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 10.dp, vertical = 8.dp)
         ) {
-            items(logs) { line ->
-                Text(line, style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(6.dp))
+            items(logs) { msg ->
+                ChatBubbleRow(peerName = peer.name, msg = msg)
+                Spacer(Modifier.height(8.dp))
             }
         }
 
@@ -733,7 +749,112 @@ private fun ChatScreen(
             OutlinedButton(onClick = { pickFileLauncher.launch("*/*") }) { Text("文件") }
         }
     }
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("清空聊天记录") },
+            text = { Text("确定清空与 ${peer.name} 的本地聊天记录？此操作不可恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onClearHistory()
+                    confirmClear = false
+                }) { Text("清空") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) { Text("取消") }
+            }
+        )
+    }
 }
+
+@Composable
+private fun ChatBubbleRow(peerName: String, msg: ChatUiMsg) {
+    when (msg.direction) {
+        "sys" -> {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(
+                    msg.body,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF888888),
+                    modifier = Modifier
+                        .background(Color(0x22000000), shape = MaterialTheme.shapes.small)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+        "out" -> {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(1f, fill = false)) {
+                    Surface(
+                        color = Color(0xFF95EC69),
+                        shape = MaterialTheme.shapes.medium,
+                        shadowElevation = 0.dp
+                    ) {
+                        Text(
+                            msg.body,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    Text(msg.time, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                }
+                Spacer(Modifier.width(8.dp))
+                AvatarCircle(letter = "我", bg = WeChatGreen)
+            }
+        }
+        else -> { // in
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.Top
+            ) {
+                AvatarCircle(
+                    letter = peerName.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                    bg = Color(0xFF12B7F5)
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(horizontalAlignment = Alignment.Start, modifier = Modifier.weight(1f, fill = false)) {
+                    Surface(
+                        color = Color.White,
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text(
+                            msg.body,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    Text(msg.time, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AvatarCircle(letter: String, bg: Color) {
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(bg),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(letter.take(1), color = Color.White, fontWeight = FontWeight.Bold)
+    }
+}
+
+data class ChatUiMsg(
+    val direction: String, // in / out / sys
+    val body: String,
+    val time: String
+)
+
 
 private fun formatSize(bytes: Long): String {
     if (bytes < 1024) return "${bytes}B"

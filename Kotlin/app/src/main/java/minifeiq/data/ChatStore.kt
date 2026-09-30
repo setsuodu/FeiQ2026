@@ -49,6 +49,14 @@ class ChatStore(context: Context) : SQLiteOpenHelper(context, "chat.db", null, 1
         })
     }
 
+    fun clear(peerKey: String) {
+        writableDatabase.delete("messages", "peer_key = ?", arrayOf(peerKey))
+    }
+
+    fun clearAll() {
+        writableDatabase.delete("messages", null, null)
+    }
+
     fun recent(peerKey: String, limit: Int = 200): List<ChatRow> {
         val list = mutableListOf<ChatRow>()
         readableDatabase.rawQuery(
