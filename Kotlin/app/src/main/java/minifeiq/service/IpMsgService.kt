@@ -351,10 +351,12 @@ class IpMsgService(
     private suspend fun pushFileOverWs(sf: SharedFile) {
         withContext(Dispatchers.IO) {
             try {
-                val chunkSize = 48 * 1024
+                // 32KB 分片 + 每片微延时，避免 OkHttp 发送队列被大文件打满导致 send failed
+                val chunkSize = 32 * 1024
                 FileInputStream(sf.path).use { fis ->
                     val buf = ByteArray(chunkSize)
                     var offset = 0L
+                    var slice = 0
                     while (true) {
                         val n = fis.read(buf)
                         if (n <= 0) break
@@ -363,6 +365,13 @@ class IpMsgService(
                         )
                         transport.send(frame, InetSocketAddress("127.0.0.1", 0))
                         offset += n
+                        slice++
+                        // 大文件每片让出一点，给中继/对端消化
+                        if (sf.size > 15L * 1024 * 1024 && slice % 2 == 0) {
+                            kotlinx.coroutines.delay(8)
+                        } else if (slice % 4 == 0) {
+                            kotlinx.coroutines.delay(2)
+                        }
                         onFileProgress?.invoke(
                             FileTransferProgress(sf.fileName, offset, sf.size, offset >= sf.size)
                         )

@@ -92,13 +92,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
         try {
             val fmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
             chatStore.recent(key).forEach { row ->
-                list.add(
-                    ChatUiMsg(
-                        direction = row.direction,
-                        body = row.body,
-                        time = fmt.format(Date(row.createdAt))
-                    )
-                )
+                list.add(parseStoredBody(row.direction, row.body, fmt.format(Date(row.createdAt))))
             }
         } catch (_: Exception) { }
     }
@@ -109,7 +103,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
             val key = peerKey(p)
             try { chatStore.add(key, p.name, direction, body) } catch (_: Exception) { }
             if (alsoUi) {
-                logsFor(p).add(ChatUiMsg(direction = direction, body = body, time = ts))
+                logsFor(p).add(parseStoredBody(direction, body, ts))
             }
             if (direction == "in") {
                 val cur = chatPeer
@@ -117,6 +111,65 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                     unread[key] = (unread[key] ?: 0) + 1
                 }
             }
+        }
+    }
+
+    /** 在气泡上更新/创建传输进度（不刷屏 sys 文字） */
+    /** 进度叠在同一条富媒体气泡上（progress!=null 显示条；done 后 progress=null） */
+    fun upsertProgress(p: Peer?, fileName: String, received: Long, total: Long, done: Boolean, savedPath: String?, error: String?) {
+        if (p == null) return
+        val list = logsFor(p)
+        val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        fun matchIdx(): Int = list.indexOfLast {
+            it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
+                (it.body.contains(fileName) || it.filePath?.endsWith(fileName) == true)
+        }
+
+        if (error != null) {
+            val idx = matchIdx()
+            val msg = ChatUiMsg("sys", "文件 $fileName 失败：$error", ts)
+            if (idx >= 0) list[idx] = msg else list.add(msg)
+            return
+        }
+
+        val pct = if (total > 0) (received.toFloat() / total).coerceIn(0f, 1f) else 0f
+        val idx = matchIdx()
+
+        if (done) {
+            if (savedPath != null) {
+                val kind = detectMsgKind(fileName)
+                val media = isAutoReceiveMedia(fileName)
+                val storeBody = when (kind) {
+                    MsgKind.Image -> "[图片] $fileName"
+                    MsgKind.Audio -> "[音乐] $fileName"
+                    MsgKind.Video -> "[视频] $fileName"
+                    else -> "[文件] $fileName"
+                } + "|$savedPath"
+                val finalMsg = parseStoredBody("in", storeBody, ts)
+                if (idx >= 0) list[idx] = finalMsg else list.add(finalMsg)
+                try { chatStore.add(peerKey(p), p.name, "in", storeBody) } catch (_: Exception) { }
+                if (!media) list.add(ChatUiMsg("sys", "文件已保存：$savedPath", ts))
+            } else if (idx >= 0) {
+                // 发送完成：去掉进度条，保留富媒体
+                list[idx] = list[idx].copy(progress = null)
+            }
+            return
+        }
+
+        // 传输中：只更新已有气泡的 progress，绝不新开 Progress 气泡
+        if (idx >= 0) {
+            list[idx] = list[idx].copy(progress = pct, time = ts)
+        } else {
+            val kind = detectMsgKind(fileName)
+            list.add(
+                ChatUiMsg(
+                    direction = "out",
+                    body = "${kindIcon(kind)} $fileName",
+                    time = ts,
+                    kind = kind,
+                    progress = pct
+                )
+            )
         }
     }
 
@@ -184,27 +237,38 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                 }
                 svc.onFileOffered = { offer ->
                     scope.launch(Dispatchers.Main) {
-                        appendLog(offer.from, "sys", "发来文件「${offer.info.fileName}」(${formatSize(offer.info.size)})")
-                        pendingOffer = offer
+                        val name = offer.info.fileName
+                        if (isAutoReceiveMedia(name)) {
+                            // 媒体：静默自动接收，不弹框、不刷 sys
+                            activeFilePeer = offer.from
+                            // 先放一条进度气泡
+                            upsertProgress(offer.from, name, 0, offer.info.size, false, null, null)
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    service?.acceptFile(offer)
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        upsertProgress(offer.from, name, 0, 0, true, null, e.message)
+                                    }
+                                }
+                            }
+                        } else {
+                            pendingOffer = offer
+                        }
                     }
                 }
                 svc.onFileProgress = { pr ->
                     scope.launch(Dispatchers.Main) {
-                        val line = when {
-                            pr.error != null -> "文件 ${pr.fileName} 失败：${pr.error}"
-                            pr.done -> {
-                                val where = pr.savedPath?.let { " → $it" } ?: ""
-                                "文件 ${pr.fileName} 完成 ${formatSize(pr.received)}$where"
-                            }
-                            pr.total > 0 -> {
-                                val pct = (pr.received * 100 / pr.total).toInt()
-                                if (pct % 10 == 0) "文件 ${pr.fileName} $pct%" else null
-                            }
-                            else -> null
-                        }
-                        if (line != null) {
-                            appendLog(activeFilePeer, "sys", line)
-                        }
+                        val peer = activeFilePeer
+                        upsertProgress(
+                            peer,
+                            pr.fileName,
+                            pr.received,
+                            pr.total,
+                            pr.done,
+                            pr.savedPath,
+                            pr.error
+                        )
                     }
                 }
 
@@ -270,9 +334,31 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                             FileOutputStream(tmp).use { output -> input.copyTo(output) }
                         }
                         activeFilePeer = peer
+                        val kind = detectMsgKind(name)
+                        val prefix = when (kind) {
+                            MsgKind.Image -> "[图片]"
+                            MsgKind.Audio -> "[音乐]"
+                            MsgKind.Video -> "[视频]"
+                            else -> "[文件]"
+                        }
+                        val storeBody = "$prefix $name|${tmp.absolutePath}"
+                        val ts0 = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                        withContext(Dispatchers.Main) {
+                            // 只插一条富媒体气泡，progress=0 叠在上面
+                            val list = logsFor(peer)
+                            val bubble = parseStoredBody("out", storeBody, ts0).copy(progress = 0f)
+                            list.add(bubble)
+                            try { chatStore.add(peerKey(peer), peer.name, "out", storeBody) } catch (_: Exception) { }
+                        }
                         svc.sendFile(peer.ip, tmp.absolutePath)
                         withContext(Dispatchers.Main) {
-                            appendLog(peer, "out", "[文件] $name")
+                            // 发送结束：同一条气泡去掉进度条
+                            val list = logsFor(peer)
+                            val idx = list.indexOfLast {
+                                it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
+                                    (it.body.contains(name) || it.filePath?.endsWith(name) == true)
+                            }
+                            if (idx >= 0) list[idx] = list[idx].copy(progress = null)
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
@@ -280,7 +366,8 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                         }
                     }
                 }
-            }
+            },
+            selfAvatarPath = avatarPath
         )
     } else {
         Scaffold(
@@ -344,7 +431,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
         }
     }
 
-    // 文件接收确认
+    // 普通文件接收确认（媒体已自动接收）
     pendingOffer?.let { offer ->
         AlertDialog(
             onDismissRequest = { pendingOffer = null },
@@ -357,12 +444,13 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                     val o = offer
                     pendingOffer = null
                     activeFilePeer = o.from
+                    upsertProgress(o.from, o.info.fileName, 0, o.info.size, false, null, null)
                     scope.launch(Dispatchers.IO) {
                         try {
                             service?.acceptFile(o)
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
-                                appendLog(o.from, "sys", "接收失败: ${e.message}")
+                                upsertProgress(o.from, o.info.fileName, 0, 0, true, null, e.message)
                             }
                         }
                     }
@@ -652,7 +740,8 @@ private fun ChatScreen(
     onBack: () -> Unit,
     onClearHistory: () -> Unit,
     onSendText: (String) -> Unit,
-    onSendFile: (Uri) -> Unit
+    onSendFile: (Uri) -> Unit,
+    selfAvatarPath: String? = null
 ) {
     var input by remember { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
@@ -716,7 +805,12 @@ private fun ChatScreen(
                 .padding(horizontal = 10.dp, vertical = 8.dp)
         ) {
             items(logs) { msg ->
-                ChatBubbleRow(peerName = peer.name, msg = msg)
+                ChatBubbleRow(
+                    peerName = peer.name,
+                    msg = msg,
+                    selfAvatarPath = selfAvatarPath,
+                    context = LocalContext.current
+                )
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -769,9 +863,14 @@ private fun ChatScreen(
 }
 
 @Composable
-private fun ChatBubbleRow(peerName: String, msg: ChatUiMsg) {
-    when (msg.direction) {
-        "sys" -> {
+private fun ChatBubbleRow(
+    peerName: String,
+    msg: ChatUiMsg,
+    selfAvatarPath: String? = null,
+    context: Context
+) {
+    when {
+        msg.direction == "sys" -> {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
                     msg.body,
@@ -783,7 +882,7 @@ private fun ChatBubbleRow(peerName: String, msg: ChatUiMsg) {
                 )
             }
         }
-        "out" -> {
+        msg.direction == "out" -> {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
@@ -795,16 +894,16 @@ private fun ChatBubbleRow(peerName: String, msg: ChatUiMsg) {
                         shape = MaterialTheme.shapes.medium,
                         shadowElevation = 0.dp
                     ) {
-                        Text(
-                            msg.body,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                        BubbleContent(msg, context)
                     }
                     Text(msg.time, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
                 Spacer(Modifier.width(8.dp))
-                AvatarCircle(letter = "我", bg = WeChatGreen)
+                AvatarCircle(
+                    letter = "我",
+                    bg = WeChatGreen,
+                    imagePath = selfAvatarPath
+                )
             }
         }
         else -> { // in
@@ -823,11 +922,7 @@ private fun ChatBubbleRow(peerName: String, msg: ChatUiMsg) {
                         color = Color.White,
                         shape = MaterialTheme.shapes.medium
                     ) {
-                        Text(
-                            msg.body,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                        BubbleContent(msg, context)
                     }
                     Text(msg.time, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
@@ -837,7 +932,157 @@ private fun ChatBubbleRow(peerName: String, msg: ChatUiMsg) {
 }
 
 @Composable
-private fun AvatarCircle(letter: String, bg: Color) {
+private fun BubbleContent(msg: ChatUiMsg, context: Context) {
+    val openFile: () -> Unit = openFile@{
+        val path = msg.filePath
+        if (msg.fileMissing || path.isNullOrEmpty()) return@openFile
+        if (msg.kind == MsgKind.Url) {
+            try {
+                context.startActivity(
+                    android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(path))
+                )
+            } catch (_: Exception) { }
+            return@openFile
+        }
+        // 图片：应用内全屏查看，不走系统图库
+        if (msg.kind == MsgKind.Image) {
+            try {
+                context.startActivity(
+                    android.content.Intent(context, ImageViewerActivity::class.java).apply {
+                        putExtra(ImageViewerActivity.EXTRA_PATH, path)
+                    }
+                )
+            } catch (_: Exception) { }
+            return@openFile
+        }
+        try {
+            val file = File(path)
+            if (!file.exists()) return@openFile
+            val uri = try {
+                androidx.core.content.FileProvider.getUriForFile(
+                    context, context.packageName + ".fileprovider", file
+                )
+            } catch (_: Exception) {
+                Uri.fromFile(file)
+            }
+            val mime = when (msg.kind) {
+                MsgKind.Audio -> "audio/*"
+                MsgKind.Video -> "video/*"
+                else -> "*/*"
+            }
+            context.startActivity(
+                android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, mime)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        } catch (_: Exception) { }
+    }
+
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        // 富媒体本体
+        when {
+            msg.kind == MsgKind.Image && !msg.fileMissing && !msg.filePath.isNullOrEmpty() && File(msg.filePath).exists() -> {
+                val bmp = remember(msg.filePath) {
+                    try {
+                        BitmapFactory.decodeFile(msg.filePath)?.asImageBitmap()
+                    } catch (_: Exception) { null }
+                }
+                if (bmp != null) {
+                    Box {
+                        Image(
+                            bitmap = bmp,
+                            contentDescription = "图片",
+                            modifier = Modifier
+                                .widthIn(max = 200.dp)
+                                .heightIn(max = 180.dp)
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable { openFile() },
+                            contentScale = ContentScale.Fit
+                        )
+                        // 进度叠在图片底部
+                        if (msg.progress != null) {
+                            LinearProgressIndicator(
+                                progress = { msg.progress },
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .height(4.dp),
+                            )
+                        }
+                    }
+                } else {
+                    FileCard(msg, onClick = openFile)
+                }
+            }
+            msg.kind == MsgKind.Image || msg.kind == MsgKind.Audio || msg.kind == MsgKind.Video || msg.kind == MsgKind.File || msg.kind == MsgKind.Progress -> {
+                FileCard(msg, onClick = openFile)
+            }
+            msg.kind == MsgKind.Url -> {
+                Text(
+                    msg.body,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF12B7F5),
+                    modifier = Modifier.clickable { openFile() }
+                )
+            }
+            else -> {
+                Text(msg.body, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        // 非图片富媒体：进度条叠在卡片下方（同一气泡内）
+        if (msg.progress != null && msg.kind != MsgKind.Image) {
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = { msg.progress },
+                modifier = Modifier
+                    .widthIn(min = 120.dp, max = 200.dp)
+                    .height(4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FileCard(msg: ChatUiMsg, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clickable { onClick() }
+            .background(Color(0xFFF8F8F8), MaterialTheme.shapes.small)
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            if (msg.fileMissing) "⚠️" else kindIcon(msg.kind),
+            style = MaterialTheme.typography.headlineSmall
+        )
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(
+                msg.body.removePrefix("⚠️ ").removePrefix(kindIcon(msg.kind)).trim()
+                    .ifEmpty { msg.filePath?.let { File(it).name } ?: "文件" },
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2
+            )
+            Text(
+                if (msg.fileMissing) "文件已失效" else kindLabel(msg.kind),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray
+            )
+        }
+    }
+}
+
+@Composable
+private fun AvatarCircle(letter: String, bg: Color, imagePath: String? = null) {
+    val bmp = remember(imagePath) {
+        if (imagePath.isNullOrEmpty()) null
+        else try {
+            BitmapFactory.decodeFile(imagePath)?.asImageBitmap()
+        } catch (_: Exception) { null }
+    }
     Box(
         Modifier
             .size(40.dp)
@@ -845,16 +1090,105 @@ private fun AvatarCircle(letter: String, bg: Color) {
             .background(bg),
         contentAlignment = Alignment.Center
     ) {
-        Text(letter.take(1), color = Color.White, fontWeight = FontWeight.Bold)
+        if (bmp != null) {
+            Image(bmp, contentDescription = "头像", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            Text(letter.take(1), color = Color.White, fontWeight = FontWeight.Bold)
+        }
     }
 }
+
+enum class MsgKind { Text, Image, Audio, Video, File, Url, Progress }
 
 data class ChatUiMsg(
     val direction: String, // in / out / sys
     val body: String,
-    val time: String
+    val time: String,
+    val kind: MsgKind = MsgKind.Text,
+    val filePath: String? = null,
+    /** null=不在传输；0f..1f=进度中 */
+    val progress: Float? = null,
+    val fileMissing: Boolean = false
 )
 
+private val IMAGE_EXTS = setOf("jpg", "jpeg", "png", "gif", "bmp", "webp", "ico", "tiff", "tif")
+private val AUDIO_EXTS = setOf("mp3", "wav", "flac", "aac", "ogg", "m4a", "wma", "ape", "opus")
+private val VIDEO_EXTS = setOf("mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "ts", "mpeg", "mpg")
+
+private fun detectMsgKind(fileName: String): MsgKind {
+    val ext = fileName.substringAfterLast('.', "").lowercase(Locale.getDefault())
+    return when {
+        ext in IMAGE_EXTS -> MsgKind.Image
+        ext in AUDIO_EXTS -> MsgKind.Audio
+        ext in VIDEO_EXTS -> MsgKind.Video
+        else -> MsgKind.File
+    }
+}
+
+private fun isAutoReceiveMedia(fileName: String): Boolean {
+    val k = detectMsgKind(fileName)
+    return k == MsgKind.Image || k == MsgKind.Audio || k == MsgKind.Video
+}
+
+private fun kindIcon(kind: MsgKind): String = when (kind) {
+    MsgKind.Image -> "🖼️"
+    MsgKind.Audio -> "🎵"
+    MsgKind.Video -> "🎬"
+    MsgKind.File -> "📄"
+    MsgKind.Url -> "🔗"
+    MsgKind.Progress -> "⏳"
+    else -> ""
+}
+
+private fun kindLabel(kind: MsgKind): String = when (kind) {
+    MsgKind.Image -> "图片"
+    MsgKind.Audio -> "音乐"
+    MsgKind.Video -> "视频"
+    MsgKind.File -> "文件"
+    else -> ""
+}
+
+/** 从存库文本解析富媒体： [图片] name|/path 或纯文本/URL */
+private fun parseStoredBody(direction: String, body: String, time: String): ChatUiMsg {
+    if (direction == "sys") {
+        return ChatUiMsg(direction, body, time, MsgKind.Text)
+    }
+    // [类型] name|path
+    if (body.startsWith("[") && body.contains('|')) {
+        val pipe = body.lastIndexOf('|')
+        val head = body.substring(0, pipe)
+        val path = body.substring(pipe + 1)
+        val name = File(path).name.ifEmpty { head.substringAfter(']').trim() }
+        val kind = when {
+            head.startsWith("[图片]") -> MsgKind.Image
+            head.startsWith("[音乐]") -> MsgKind.Audio
+            head.startsWith("[视频]") -> MsgKind.Video
+            head.startsWith("[文件]") -> MsgKind.File
+            else -> detectMsgKind(name)
+        }
+        val missing = path.isNotEmpty() && !File(path).exists()
+        return ChatUiMsg(
+            direction = direction,
+            body = if (missing) "⚠️ $name（已失效）" else "${kindIcon(kind)} $name",
+            time = time,
+            kind = kind,
+            filePath = path,
+            fileMissing = missing
+        )
+    }
+    // 旧格式 [文件] name
+    if (body.startsWith("[文件]") || body.startsWith("[图片]") || body.startsWith("[音乐]") || body.startsWith("[视频]")) {
+        val name = body.substringAfter(']').trim()
+        val kind = detectMsgKind(name)
+        return ChatUiMsg(direction, "${kindIcon(kind)} $name", time, kind)
+    }
+    // URL
+    val trimmed = body.trim()
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        return ChatUiMsg(direction, "🔗 $trimmed", time, MsgKind.Url, filePath = trimmed)
+    }
+    return ChatUiMsg(direction, body, time, MsgKind.Text)
+}
 
 private fun formatSize(bytes: Long): String {
     if (bytes < 1024) return "${bytes}B"

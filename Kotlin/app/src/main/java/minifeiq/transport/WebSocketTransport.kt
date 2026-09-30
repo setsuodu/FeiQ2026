@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * WebSocket 中继传输（OkHttp，Android 兼容）。
- * 所有收发经服务器转发。
+ * 所有收发经服务器转发。支持断线自动重连。
  */
 class WebSocketTransport(
     private val serverUrl: String,
@@ -31,13 +31,22 @@ class WebSocketTransport(
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .pingInterval(20, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
-    // 合成远端地址，供协议层使用
     private val syntheticRemote = InetSocketAddress("0.0.0.0", 0)
+    private val connectLock = Any()
 
     override suspend fun start() {
-        if (open.get()) return
+        connectInternal(timeoutMs = 15_000)
+    }
+
+    private suspend fun connectInternal(timeoutMs: Long) {
+        if (open.get() && webSocket != null) return
+        synchronized(connectLock) {
+            if (open.get() && webSocket != null) return
+        }
+
         val url = if (serverUrl.contains("?")) {
             "$serverUrl&clientId=$clientId"
         } else {
@@ -52,7 +61,7 @@ class WebSocketTransport(
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 open.set(true)
-                latch.complete(Unit)
+                if (!latch.isCompleted) latch.complete(Unit)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -65,7 +74,7 @@ class WebSocketTransport(
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 open.set(false)
-                webSocket.close(1000, null)
+                try { webSocket.close(1000, null) } catch (_: Exception) { }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -80,9 +89,11 @@ class WebSocketTransport(
             }
         }
 
+        // 关掉旧连接
+        try { webSocket?.cancel() } catch (_: Exception) { }
         webSocket = client.newWebSocket(request, listener)
 
-        withTimeout(15_000) {
+        withTimeout(timeoutMs) {
             latch.await()
         }
         if (!open.get()) error("WebSocket 连接超时: $serverUrl")
@@ -97,9 +108,39 @@ class WebSocketTransport(
     }
 
     private fun sendRaw(data: ByteArray) {
+        if (!open.get() || webSocket == null) {
+            try {
+                runBlocking {
+                    withTimeout(8_000) { connectInternal(8_000) }
+                }
+            } catch (e: Exception) {
+                error("WebSocket not open（重连失败: ${e.message}）")
+            }
+        }
         val ws = webSocket ?: error("WebSocket not connected")
         if (!open.get()) error("WebSocket not open")
-        ws.send(data.toByteString())
+
+        // OkHttp 队列满时 send 返回 false；大文件需重试等待，勿立刻当断线
+        var attempt = 0
+        while (true) {
+            val ok = try {
+                ws.send(data.toByteString())
+            } catch (e: Exception) {
+                open.set(false)
+                error("WebSocket send failed: ${e.message}")
+            }
+            if (ok) return
+            attempt++
+            if (attempt > 80) {
+                error("WebSocket send failed（发送队列持续拥塞）")
+            }
+            try {
+                Thread.sleep(if (attempt < 10) 30L else 80L)
+            } catch (_: InterruptedException) {
+                error("WebSocket send interrupted")
+            }
+            if (!open.get()) error("WebSocket not open")
+        }
     }
 
     override fun close() {
@@ -110,6 +151,6 @@ class WebSocketTransport(
         }
         webSocket = null
         scope.cancel()
-        client.dispatcher.executorService.shutdown()
+        // 不要 shutdown 共享 client 的 dispatcher，避免重连后无法用
     }
 }
