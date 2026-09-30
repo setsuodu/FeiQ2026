@@ -2,18 +2,9 @@ name: WPF Client Package
 
 on:
   push:
-    branches: [main]
     tags:
-      - 'wpf/v*'  # 匹配 wpf/v1.0.0 等
-    paths:
-      - 'WPF/**'
-      - '.github/workflows/wpf-publish.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'WPF/**'
-      - '.github/workflows/wpf-publish.yml'
-  workflow_dispatch:
+      - 'wpf/v*'     # 只有推送这种 tag 才会触发
+  workflow_dispatch:   # 保留手动触发
 
 jobs:
   publish:

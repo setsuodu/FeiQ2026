@@ -2,18 +2,9 @@ name: Android Client Package
 
 on:
   push:
-    branches: [main]
     tags:
-      - 'android/v*'  # 匹配 android/v1.0.0, android/v2.1.3 等
-    paths:
-      - 'Kotlin/**'
-      - '.github/workflows/android-package.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'Kotlin/**'
-      - '.github/workflows/android-package.yml'
-  workflow_dispatch:
+      - 'android/v*'  # 只有推送这种 tag 才会触发，日常合 main 彻底静默
+  workflow_dispatch:   # 保留手动触发，方便调试
 
 jobs:
   build:

@@ -2,18 +2,9 @@ name: Server → GHCR
 
 on:
   push:
-    branches: [main]
     tags:
-      - 'server/v*'  # 匹配 server/v1.0.0 等
-    paths:
-      - 'Server/**'
-      - '.github/workflows/server-ghcr.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'Server/**'
-      - '.github/workflows/server-ghcr.yml'
-  workflow_dispatch:
+      - 'server/v*'   # 只有推送这种 tag 才会触发
+  workflow_dispatch:   # 保留手动触发
 
 env:
   REGISTRY: ghcr.io
@@ -47,9 +38,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            # 强制启用 latest 标签，确保打 tag 触发时能够覆盖更新 latest
+            type=raw,value=latest,enable=true
             type=sha,prefix=
-            # 关键改动：如果是 server/v1.0.0 标签触发，提取出 v1.0.0 作为 Docker Tag
+            # 如果是 server/v1.0.0 标签触发，提取出 v1.0.0 作为 Docker Tag
             type=match,pattern=server/(v.*),group=1
 
       - name: Build and push
