@@ -24,7 +24,7 @@ public sealed class WebSocketTransport : ITransport
 
     public event Action<byte[], IPEndPoint>? DataReceived;
 
-    /// <param name="serverUrl">例如 ws://s0.v100.vip:xxxxx 或 ws://127.0.0.1:9000</param>
+    /// <param name="serverUrl">例如 ws://s0.v100.vip:xxxxx 或 ws://192.168.1.101:9000</param>
     /// <param name="clientId">本机标识，默认用机器名</param>
     public WebSocketTransport(string serverUrl, string? clientId = null)
     {

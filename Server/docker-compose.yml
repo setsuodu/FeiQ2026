@@ -1,0 +1,12 @@
+services:
+  relay:
+    build:
+      context: ./RelayService
+      dockerfile: Dockerfile
+    image: minifeiq-relay:local
+    container_name: minifeiq-relay
+    ports:
+      - "9000:9000"
+    environment:
+      - ASPNETCORE_URLS=http://0.0.0.0:9000
+    restart: unless-stopped

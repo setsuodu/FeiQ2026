@@ -49,7 +49,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
 
     // ================= 连接 =================
     var modeIndex by remember { mutableIntStateOf(0) }          // 0=UDP 1=WS
-    var serverUrl by remember { mutableStateOf("ws://127.0.0.1:9000/ws") }
+    var serverUrl by remember { mutableStateOf("ws://192.168.1.101:9000/ws") }
     var status by remember { mutableStateOf("未连接") }
     var statusColor by remember { mutableStateOf(Color.Gray) }
 

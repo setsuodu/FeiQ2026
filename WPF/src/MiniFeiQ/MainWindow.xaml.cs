@@ -46,7 +46,7 @@ public partial class MainWindow : Window
                 var url = ServerUrlBox.Text?.Trim();
                 if (string.IsNullOrEmpty(url))
                 {
-                    MessageBox.Show("请填写中继地址，例如 ws://127.0.0.1:9000/ws");
+                    MessageBox.Show("请填写中继地址，例如 ws://192.168.1.101:9000/ws");
                     return;
                 }
                 _transport = new WebSocketTransport(url);

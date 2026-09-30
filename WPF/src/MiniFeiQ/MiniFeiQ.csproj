@@ -12,8 +12,12 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>embedded</DebugType>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.0" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.12" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
   </ItemGroup>
 </Project>
