@@ -13,13 +13,16 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 
 ## 扩展方向
 
-- [ ] 头像设置（base64 随 UDP 包广播）
+- [x] 消息持久化（SQLite）
+- [x] 头像设置（base64 随 UDP 包广播）
+- [ ] 图片、音频、视频，独立View显示
+- [ ] 长按语音发送
+- [ ] 实时童话、会议（WebRTC）
 - [ ] 消息通知（Windows Toast / Android Notification）
-- [ ] 消息持久化（SQLite）
 - [ ] 图片压缩（大图走文件通道）
 - [ ] 传输加密（TLS）
 - [ ] 群组广播消息
-- [ ] macOS/Linux 客户端（Avalonia UI）
+- [ ] macOS/Linux 客户端
 
 ---
 
