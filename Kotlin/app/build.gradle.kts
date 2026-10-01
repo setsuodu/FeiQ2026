@@ -58,5 +58,14 @@ dependencies {
     // WebSocket (Android 兼容，比 java.net.http 更稳)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Media3 / ExoPlayer：视频独立页 + Chat 内音频播放
+    val media3 = "1.5.1"
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
+    implementation("androidx.media3:media3-common:$media3")
+
+    // FileProvider 等
+    implementation("androidx.core:core-ktx:1.15.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

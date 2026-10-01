@@ -26,9 +26,17 @@
             </intent-filter>
         </activity>
 
+        <!-- 兼容旧入口：图片全屏 -->
         <activity
             android:name="minifeiq.ui.ImageViewerActivity"
             android:exported="false"
+            android:theme="@style/Theme.MiniFeiQ" />
+
+        <!-- 图片 / 视频独立全屏查看（ExoPlayer） -->
+        <activity
+            android:name="minifeiq.ui.MediaViewerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.MiniFeiQ" />
 
         <provider
