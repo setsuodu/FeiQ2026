@@ -160,10 +160,13 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
     fun ensureHistory(p: Peer) {
         val key = peerKey(p)
         val list = chatLogs.getOrPut(key) { mutableStateListOf() }
-        if (list.isNotEmpty()) return
         try {
             val fmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-            chatStore.recent(key).forEach { row ->
+            val fromDb = chatStore.recent(key)
+            // DB 是权威来源：离线消息已由 appendLog 写入。
+            // 若先收离线再进会话，旧逻辑会因 list 非空而跳过加载，导致历史被“覆盖”。
+            list.clear()
+            fromDb.forEach { row ->
                 list.add(parseStoredBody(row.direction, row.body, fmt.format(Date(row.createdAt))))
             }
         } catch (_: Exception) { }
