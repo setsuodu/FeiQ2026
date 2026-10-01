@@ -14,16 +14,48 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Extract version from tag
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/wpf/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/wpf/}"
+            VERSION="${TAG#v}"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
+      - name: Inject version into csproj
+        shell: pwsh
+        run: |
+          $csproj = "WPF/src/MiniFeiQ/MiniFeiQ.csproj"
+          $ver = "${{ steps.ver.outputs.version }}"
+          # 在 PropertyGroup 里注入 Version / FileVersion / InformationalVersion
+          $content = Get-Content $csproj -Raw
+          if ($content -notmatch '<Version>') {
+            $content = $content -replace '(<PropertyGroup>)', "`$1`n    <Version>$ver</Version>`n    <FileVersion>$ver.0</FileVersion>`n    <InformationalVersion>$ver</InformationalVersion>"
+          } else {
+            $content = $content -replace '<Version>.*?</Version>', "<Version>$ver</Version>"
+            $content = $content -replace '<FileVersion>.*?</FileVersion>', "<FileVersion>$ver.0</FileVersion>"
+            $content = $content -replace '<InformationalVersion>.*?</InformationalVersion>', "<InformationalVersion>$ver</InformationalVersion>"
+          }
+          Set-Content -Path $csproj -Value $content -NoNewline
+          Write-Host "Injected Version=$ver"
+          Select-String -Path $csproj -Pattern 'Version|FileVersion|InformationalVersion'
+
       - name: Restore
         run: dotnet restore WPF/src/MiniFeiQ/MiniFeiQ.csproj
 
       - name: Publish (single-file, self-contained, win-x64)
-        run: >
+        run: >-
           dotnet publish WPF/src/MiniFeiQ/MiniFeiQ.csproj
           -c Release
           -r win-x64
@@ -31,12 +63,13 @@ jobs:
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:EnableCompressionInSingleFile=true
+          -p:Version=${{ steps.ver.outputs.version }}
           -o publish
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FeiQ2026-WPF-win-x64
+          name: FeiQ2026-WPF-win-x64-${{ steps.ver.outputs.version }}
           path: publish/
           if-no-files-found: error
           retention-days: 14
@@ -48,5 +81,9 @@ jobs:
           files: publish/FeiQ2026.exe
           generate_release_notes: true
           name: FeiQ 2026 WPF Release ${{ github.ref_name }}
+          body: |
+            ## FeiQ 2026 WPF ${{ steps.ver.outputs.version }}
+            - Version: `${{ steps.ver.outputs.version }}`
+            - 单文件自包含 win-x64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
