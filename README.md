@@ -59,14 +59,14 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 git tag android/v1.0.0
 git push origin android/v1.0.0
 ```
-* **效果**：触发 Android 单独打包，并在 GitHub Releases 页面生成带有安装包的 `Android Release android/v1.0.0`。
+* **效果**：触发 Android 单独打包，并在 GitHub Releases 页面生成带有安装包的 `Android Release android/v1.0.0`。版本号会自动从 tag 注入 `versionName` / `versionCode`。
 
 #### 💻 发布 WPF 新版本
 ```bash
 git tag wpf/v1.0.0
 git push origin wpf/v1.0.0
 ```
-* **效果**：触发 Windows 环境编译，并在 GitHub Releases 页面生成带有单文件绿色版的 `WPF Release wpf/v1.0.0`。
+* **效果**：触发 Windows 环境编译，并在 GitHub Releases 页面生成带有单文件绿色版的 `WPF Release wpf/v1.0.0`。版本号会自动从 tag 注入 `Version` / `FileVersion`。
 
 #### 🐳 发布 Server 新版本
 ```bash
