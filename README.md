@@ -20,7 +20,7 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 - [x] 图片、音频、视频：图片&视频独立 MediaViewer（ExoPlayer）；音频 Chat 内点播
 - [x] 消息通知（Windows Toast）
 - [ ] 消息通知（Android JPush）
-- [ ] APK 更换包名：com.setsuodu.feiq
+- [x] APK 更换包名：com.setsuodu.feiq
 - [ ] NAT 走 TCP应用+自动https。客户端全换：wss://s0.v100.vip:27658/ws
 - [ ] 长按语音发送
 - [ ] 实时童话、会议（WebRTC）

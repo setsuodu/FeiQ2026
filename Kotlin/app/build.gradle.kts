@@ -5,15 +5,20 @@ plugins {
 }
 
 android {
-    namespace = "minifeiq"
+    namespace = "com.setsuodu.feiq"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "minifeiq.android"
+        applicationId = "com.setsuodu.feiq"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
+
+        // JPush
+        manifestPlaceholders["JPUSH_PKGNAME"] = applicationId!!
+        manifestPlaceholders["JPUSH_APPKEY"] = "056f5f11f3832f86529e86b4"   // ← 改成真实值
+        manifestPlaceholders["JPUSH_CHANNEL"] = "developer-default"
     }
 
     buildTypes {
@@ -55,17 +60,22 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
-    // WebSocket (Android 兼容，比 java.net.http 更稳)
+    // WebSocket
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // Media3 / ExoPlayer：视频独立页 + Chat 内音频播放
+    // Media3 / ExoPlayer
     val media3 = "1.5.1"
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-common:$media3")
 
-    // FileProvider 等
     implementation("androidx.core:core-ktx:1.15.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // ========== JPush 本地库（仅小米）==========
+    implementation(files("libs/jcore-android-5.5.1.aar"))
+    implementation(files("libs/jpush-android-6.2.1.jar"))
+    implementation(files("libs/jpush-android-plugin-xiaomi-v6.2.1.jar"))
+    implementation(files("libs/MiPush_SDK_Client_7_12_4-C.jar"))
 }

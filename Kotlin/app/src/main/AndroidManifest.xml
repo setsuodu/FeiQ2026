@@ -10,8 +10,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- 可选：引导用户关闭电池优化时再用 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- JPush 自定义权限 -->
+    <permission
+        android:name="${applicationId}.permission.JPUSH_MESSAGE"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="${applicationId}.permission.JPUSH_MESSAGE" />
 
     <application
         android:allowBackup="true"
@@ -21,6 +27,7 @@
         android:theme="@style/Theme.MiniFeiQ"
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -45,19 +52,19 @@
         </activity>
 
         <activity
-            android:name="minifeiq.ui.ImageViewerActivity"
+            android:name="com.setsuodu.feiq.ui.ImageViewerActivity"
             android:exported="false"
             android:theme="@style/Theme.MiniFeiQ" />
 
         <activity
-            android:name="minifeiq.ui.MediaViewerActivity"
+            android:name="com.setsuodu.feiq.ui.MediaViewerActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.MiniFeiQ" />
 
         <!-- 息屏后 UDP/组播保活 -->
         <service
-            android:name="minifeiq.service.FeiqKeepAliveService"
+            android:name="com.setsuodu.feiq.service.FeiqKeepAliveService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
@@ -70,5 +77,32 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- ========== JPush ========== -->
+        <meta-data
+            android:name="JPUSH_CHANNEL"
+            android:value="${JPUSH_CHANNEL}" />
+        <meta-data
+            android:name="JPUSH_APPKEY"
+            android:value="${JPUSH_APPKEY}" />
+
+        <!-- 小米厂商通道（换成你自己的） -->
+        <meta-data
+            android:name="XIAOMI_APPID"
+            android:value="你的小米AppID" />
+        <meta-data
+            android:name="XIAOMI_APPKEY"
+            android:value="你的小米AppKey" />
+
+        <receiver
+            android:name="com.setsuodu.feiq.push.JPushReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="cn.jpush.android.intent.RECEIVER_MESSAGE" />
+                <category android:name="${applicationId}" />
+            </intent-filter>
+        </receiver>
+
     </application>
 </manifest>
