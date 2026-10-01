@@ -46,7 +46,7 @@ fun SharePeerPickerDialog() {
                 } else {
                     peers.forEach { p ->
                         Text(
-                            p.name.ifBlank { p.ip },
+                            p.name.ifBlank { p.ip.toString() },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {

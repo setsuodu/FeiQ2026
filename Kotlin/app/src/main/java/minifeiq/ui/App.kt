@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import minifeiq.ShareBridge
+import minifeiq.shareSendFile
 import minifeiq.data.AppSettings
 import minifeiq.data.AvatarCache
 import minifeiq.data.ChatStore
@@ -130,7 +132,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
         val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         fun matchIdx(): Int = list.indexOfLast {
             it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
-                (it.body.contains(fileName) || it.filePath?.endsWith(fileName) == true)
+                    (it.body.contains(fileName) || it.filePath?.endsWith(fileName) == true)
         }
 
         if (error != null) {
@@ -318,6 +320,48 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
         onDispose { stopService() }
     }
 
+    // 系统分享：把在线列表 / 发文件挂到 ShareBridge，供分享弹窗使用
+    SideEffect {
+        ShareBridge.peers = { users.toList() }
+        ShareBridge.sendToPeer = { peer, uri ->
+            shareSendFile(
+                scope = scope,
+                context = context,
+                service = service,
+                peer = peer,
+                uri = uri,
+                onPrepared = { name, path ->
+                    activeFilePeer = peer
+                    ensureHistory(peer)
+                    chatPeer = peer
+                    val kind = detectMsgKind(name)
+                    val prefix = when (kind) {
+                        MsgKind.Image -> "[图片]"
+                        MsgKind.Audio -> "[音乐]"
+                        MsgKind.Video -> "[视频]"
+                        else -> "[文件]"
+                    }
+                    val storeBody = "$prefix $name|$path"
+                    val ts0 = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+                        .format(java.util.Date())
+                    val list = logsFor(peer)
+                    list.add(parseStoredBody("out", storeBody, ts0).copy(progress = 0f))
+                    try { chatStore.add(peerKey(peer), peer.name, "out", storeBody) } catch (_: Exception) { }
+                },
+                onDone = { name ->
+                    val list = logsFor(peer)
+                    val idx = list.indexOfLast {
+                        it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
+                                (it.body.contains(name) || it.filePath?.endsWith(name) == true)
+                    }
+                    if (idx >= 0) list[idx] = list[idx].copy(progress = null)
+                },
+                onError = { msg -> appendLog(peer, "sys", msg) }
+            )
+        }
+        ShareBridge.notifyChanged()
+    }
+
     // ========== UI ==========
     if (chatPeer != null) {
         val peer = chatPeer!!
@@ -377,7 +421,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                             val list = logsFor(peer)
                             val idx = list.indexOfLast {
                                 it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
-                                    (it.body.contains(name) || it.filePath?.endsWith(name) == true)
+                                        (it.body.contains(name) || it.filePath?.endsWith(name) == true)
                             }
                             if (idx >= 0) list[idx] = list[idx].copy(progress = null)
                         }
