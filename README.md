@@ -17,11 +17,11 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 - [x] 头像设置（base64 随 UDP 包广播）
 - [x] 镜像改名 minifeiq-relay 👉 feiq2026-relay
 - [x] ci 和 Android & WPF Version 注入关联
-- [ ] 图片、音频、视频，独立View显示
+- [x] 图片、音频、视频：图片&视频独立 MediaViewer（ExoPlayer）；音频 Chat 内点播
 - [ ] 长按语音发送
 - [ ] 实时童话、会议（WebRTC）
 - [ ] 消息通知（Windows Toast / Android Notification）
-- [ ] 客户端 Velopack
+- [ ] 图片压缩（大图走文件通道）
 - [ ] 传输加密（TLS）
 - [ ] 群组广播消息
 - [ ] macOS/Linux 客户端
