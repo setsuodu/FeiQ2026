@@ -122,7 +122,7 @@ public partial class MainWindow : Window
                 {
                     SetConnState(ok: false);
                     System.Windows.MessageBox.Show(
-                        "请先在设置中填写中继地址（点击左上角头像）\n例如 ws://192.168.1.101:9000/ws",
+                        "请先在设置中填写中继地址（点击左上角头像）\n例如 wss://s0.v100.vip:27658/ws",
                         "FeiQ 2026");
                     return;
                 }

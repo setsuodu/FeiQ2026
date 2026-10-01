@@ -16,7 +16,7 @@ public sealed class AppSettings
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "FeiQ2026", "Downloads");
     public string ChatDbDir { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FeiQ2026");
-    public string LastServerUrl { get; set; } = "ws://192.168.1.101:9000/ws";
+    public string LastServerUrl { get; set; } = "wss://s0.v100.vip:27658/ws";
     public int LastModeIndex { get; set; } // 0=UDP 1=WS
 
     public string ChatDbPath => Path.Combine(ChatDbDir, "chat.db");

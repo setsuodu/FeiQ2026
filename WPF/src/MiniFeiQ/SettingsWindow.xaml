@@ -44,7 +44,7 @@
                     <StackPanel>
                         <TextBlock Text="WebSocket 中继地址" FontSize="12" Foreground="#666" Margin="0,0,0,4"/>
                         <TextBox x:Name="ServerUrlBox" Height="28" Padding="4,2"
-                                 ToolTip="例如 ws://192.168.1.101:9000/ws"/>
+                                 ToolTip="例如 wss://s0.v100.vip:27658/ws"/>
                         <TextBlock Text="仅在主界面选择「WebSocket 中继」时使用。修改后保存会自动重连。"
                                    FontSize="11" Foreground="#999" TextWrapping="Wrap" Margin="0,6,0,0"/>
                     </StackPanel>

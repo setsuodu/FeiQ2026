@@ -55,7 +55,7 @@ class AppSettings(context: Context) {
     fun avatarFile(): File = File(filesDir, "avatar.jpg")
 
     companion object {
-        const val DEFAULT_URL = "ws://192.168.1.101:9000/ws"
+        const val DEFAULT_URL = "wss://s0.v100.vip:27658/ws"
         private const val KEY_USER = "user_name"
         private const val KEY_AVATAR = "avatar_path"
         private const val KEY_URL = "server_url"
