@@ -20,6 +20,7 @@
     <uses-permission android:name="${applicationId}.permission.JPUSH_MESSAGE" />
 
     <application
+        android:name=".FeiQApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -68,6 +69,21 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- 补上这个极光核心长连接服务 -->
+        <service
+            android:name="com.setsuodu.feiq.push.PushService"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":pushcore">
+            <intent-filter>
+                <action android:name="cn.jpush.android.intent.REGISTERService" />
+                <action android:name="cn.jpush.android.intent.REPORTService" />
+                <action android:name="cn.jpush.android.intent.PushService" />
+                <action android:name="cn.jpush.android.intent.PUSH_TIME" />
+                <action android:name="cn.jiguang.user.service.action" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -78,7 +94,41 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- ========== JPush ========== -->
+        <!-- ========== 💡 核心修复：死死补上极光漏掉的亲爹 Activity 组件 ========== -->
+        <!-- 解决 check config failed 并释放极光弹窗飘窗能力 -->
+        <activity
+            android:name="cn.jpush.android.ui.PushActivity"
+            android:configChanges="orientation|keyboardHidden"
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="cn.jpush.android.ui.PushActivity" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="${applicationId}" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name="cn.jpush.android.service.JNotifyActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="cn.jpush.android.intent.JNotifyActivity" />
+                <category android:name="${applicationId}" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name="cn.jpush.android.ui.PopWinActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false">
+            <intent-filter>
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="${applicationId}" />
+            </intent-filter>
+        </activity>
+
+        <!-- ========== JPush Meta-Data ========== -->
         <meta-data
             android:name="JPUSH_CHANNEL"
             android:value="${JPUSH_CHANNEL}" />
@@ -86,20 +136,21 @@
             android:name="JPUSH_APPKEY"
             android:value="${JPUSH_APPKEY}" />
 
-        <!-- 小米厂商通道（换成你自己的） -->
+        <!-- 🚨 隐藏隐患修复：这里你原先填的是中文。在个人开发机调试未申请小米AppID前， -->
+        <!-- 必须先写死成纯数字字符串或者注释掉，否则极光厂商通道解析直接引发应用崩溃！ -->
         <meta-data
             android:name="XIAOMI_APPID"
-            android:value="你的小米AppID" />
+            android:value="2882303761517422222" />
         <meta-data
             android:name="XIAOMI_APPKEY"
-            android:value="你的小米AppKey" />
+            android:value="5111742222222" />
 
         <receiver
             android:name="com.setsuodu.feiq.push.JPushReceiver"
             android:enabled="true"
             android:exported="false">
             <intent-filter>
-                <action android:name="cn.jpush.android.intent.RECEIVER_MESSAGE" />
+                <action android:name="cn.jpush.android.intent.RECEIVER" />
                 <category android:name="${applicationId}" />
             </intent-filter>
         </receiver>
