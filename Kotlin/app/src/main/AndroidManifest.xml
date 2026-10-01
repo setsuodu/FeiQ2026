@@ -5,7 +5,13 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-    <!-- 文件读写（下载目录用应用私有目录，无需额外存储权限；发送文件用 SAF） -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 可选：引导用户关闭电池优化时再用 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:allowBackup="true"
@@ -26,14 +32,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 系统分享：单文件 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="*/*" />
             </intent-filter>
-
-            <!-- 系统分享：多文件 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -41,18 +44,22 @@
             </intent-filter>
         </activity>
 
-        <!-- 兼容旧入口：图片全屏 -->
         <activity
             android:name="minifeiq.ui.ImageViewerActivity"
             android:exported="false"
             android:theme="@style/Theme.MiniFeiQ" />
 
-        <!-- 图片 / 视频独立全屏查看（ExoPlayer） -->
         <activity
             android:name="minifeiq.ui.MediaViewerActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.MiniFeiQ" />
+
+        <!-- 息屏后 UDP/组播保活 -->
+        <service
+            android:name="minifeiq.service.FeiqKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -294,7 +294,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
 
     // 系统分享：把在线列表 / 发文件挂到 ShareBridge，供分享弹窗使用
     SideEffect {
-        ShareBridge.peers = { users.toList() }
+        ShareBridge.updatePeers(users.toList())
         ShareBridge.sendToPeer = { peer, uri ->
             shareSendFile(
                 scope = scope,
@@ -331,7 +331,6 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                 onError = { msg -> appendLog(peer, "sys", msg) }
             )
         }
-        ShareBridge.notifyChanged()
     }
 
     // ========== UI ==========
