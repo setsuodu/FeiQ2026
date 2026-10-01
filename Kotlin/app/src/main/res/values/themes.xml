@@ -4,4 +4,11 @@
         <item name="android:statusBarColor">#FF1976D2</item>
         <item name="android:navigationBarColor">#FFFFFFFF</item>
     </style>
+
+    <!-- JPush SDK 校验：JNotifyActivity 必须使用 @style/JPushTheme，名称不能混淆 -->
+    <style name="JPushTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>
