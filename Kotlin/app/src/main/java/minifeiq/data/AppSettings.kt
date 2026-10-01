@@ -2,8 +2,9 @@ package minifeiq.data
 
 import android.content.Context
 import java.io.File
+import java.util.UUID
 
-/** 本地配置：用户名、头像、中继 URL、模式、下载目录 */
+/** 本地配置：用户名、头像、中继 URL、模式、下载目录、稳定中继 clientId */
 class AppSettings(context: Context) {
     private val prefs = context.getSharedPreferences("feiq2026", Context.MODE_PRIVATE)
     private val filesDir = context.filesDir
@@ -26,6 +27,19 @@ class AppSettings(context: Context) {
         get() = prefs.getInt(KEY_MODE, 0)
         set(v) = prefs.edit().putInt(KEY_MODE, v).apply()
 
+    /**
+     * 中继稳定身份，用于服务端离线消息队列命中。
+     * 首次生成后持久化；勿用纯 MODEL（同型号会冲突）。
+     */
+    val relayClientId: String
+        get() {
+            val existing = prefs.getString(KEY_CLIENT_ID, null)
+            if (!existing.isNullOrBlank()) return existing
+            val id = "android-" + UUID.randomUUID().toString().replace("-", "").take(16)
+            prefs.edit().putString(KEY_CLIENT_ID, id).apply()
+            return id
+        }
+
     val downloadDir: File
         get() {
             val custom = prefs.getString(KEY_DOWNLOAD, null)
@@ -47,5 +61,6 @@ class AppSettings(context: Context) {
         private const val KEY_URL = "server_url"
         private const val KEY_MODE = "mode_index"
         private const val KEY_DOWNLOAD = "download_dir"
+        private const val KEY_CLIENT_ID = "relay_client_id"
     }
 }

@@ -13,8 +13,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * WebSocket 中继传输（OkHttp，Android 兼容）。
- * 所有收发经服务器转发。支持断线自动重连。
+ * WebSocket 中继传输（OkHttp）。
+ * - 稳定 clientId 由外部传入（对应服务端离线队列）
+ * - 断线自动重连，连上后由 onConnectionChanged(true) 通知上层补发/重新上线
  */
 class WebSocketTransport(
     private val serverUrl: String,
@@ -23,10 +24,14 @@ class WebSocketTransport(
     override val localPort: Int = 0
     override val supportsBroadcast: Boolean = true
     override var onDataReceived: ((ByteArray, InetSocketAddress) -> Unit)? = null
+    override var onConnectionChanged: ((Boolean) -> Unit)? = null
 
     private var webSocket: WebSocket? = null
     private val open = AtomicBoolean(false)
+    private val intentionalClose = AtomicBoolean(false)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var reconnectJob: Job? = null
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -37,11 +42,45 @@ class WebSocketTransport(
     private val syntheticRemote = InetSocketAddress("0.0.0.0", 0)
     private val connectLock = Any()
 
+    override val isConnected: Boolean
+        get() = open.get() && webSocket != null
+
     override suspend fun start() {
+        intentionalClose.set(false)
         connectInternal(timeoutMs = 15_000)
+        onConnectionChanged?.invoke(true)
+        startReconnectLoop()
+    }
+
+    private fun startReconnectLoop() {
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            var backoff = 1_000L
+            while (isActive && !intentionalClose.get()) {
+                delay(2_000)
+                if (intentionalClose.get()) break
+                if (open.get() && webSocket != null) {
+                    backoff = 1_000L
+                    continue
+                }
+                // 已断开 → 尝试重连
+                try {
+                    connectInternal(timeoutMs = 12_000)
+                    if (open.get()) {
+                        onConnectionChanged?.invoke(true)
+                        backoff = 1_000L
+                    }
+                } catch (_: Exception) {
+                    onConnectionChanged?.invoke(false)
+                    delay(backoff)
+                    backoff = (backoff * 2).coerceAtMost(30_000L)
+                }
+            }
+        }
     }
 
     private suspend fun connectInternal(timeoutMs: Long) {
+        if (intentionalClose.get()) return
         if (open.get() && webSocket != null) return
         synchronized(connectLock) {
             if (open.get() && webSocket != null) return
@@ -75,10 +114,16 @@ class WebSocketTransport(
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 open.set(false)
                 try { webSocket.close(1000, null) } catch (_: Exception) { }
+                if (!intentionalClose.get()) {
+                    onConnectionChanged?.invoke(false)
+                }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 open.set(false)
+                if (!intentionalClose.get()) {
+                    onConnectionChanged?.invoke(false)
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -86,10 +131,12 @@ class WebSocketTransport(
                 if (!latch.isCompleted) {
                     latch.completeExceptionally(t)
                 }
+                if (!intentionalClose.get()) {
+                    onConnectionChanged?.invoke(false)
+                }
             }
         }
 
-        // 关掉旧连接
         try { webSocket?.cancel() } catch (_: Exception) { }
         webSocket = client.newWebSocket(request, listener)
 
@@ -120,7 +167,6 @@ class WebSocketTransport(
         val ws = webSocket ?: error("WebSocket not connected")
         if (!open.get()) error("WebSocket not open")
 
-        // OkHttp 队列满时 send 返回 false；大文件需重试等待，勿立刻当断线
         var attempt = 0
         while (true) {
             val ok = try {
@@ -144,6 +190,9 @@ class WebSocketTransport(
     }
 
     override fun close() {
+        intentionalClose.set(true)
+        reconnectJob?.cancel()
+        reconnectJob = null
         open.set(false)
         try {
             webSocket?.close(1000, "bye")
@@ -151,6 +200,5 @@ class WebSocketTransport(
         }
         webSocket = null
         scope.cancel()
-        // 不要 shutdown 共享 client 的 dispatcher，避免重连后无法用
     }
 }

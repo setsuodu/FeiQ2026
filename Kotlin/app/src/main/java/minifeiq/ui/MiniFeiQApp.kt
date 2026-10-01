@@ -21,6 +21,9 @@ import minifeiq.shareSendFile
 import minifeiq.data.AppSettings
 import minifeiq.data.AvatarCache
 import minifeiq.data.ChatStore
+import minifeiq.data.OutboxStore
+import minifeiq.service.FeiqKeepAliveService
+import java.net.InetAddress
 import minifeiq.service.IncomingFileOffer
 import minifeiq.service.IpMsgService
 import minifeiq.service.Peer
@@ -38,6 +41,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
     val scope = rememberCoroutineScope()
     val settings = remember { AppSettings(context) }
     val chatStore = remember { ChatStore(context) }
+    val outbox = remember { OutboxStore(context) }
 
     // 底栏：0=聊天列表 1=我的
     var tab by remember { mutableIntStateOf(0) }
@@ -105,17 +109,6 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
     fun logsFor(p: Peer): SnapshotStateList<ChatUiMsg> =
         chatLogs.getOrPut(peerKey(p)) { mutableStateListOf() }
 
-    fun ensureHistory(p: Peer) {
-        val key = peerKey(p)
-        val list = chatLogs.getOrPut(key) { mutableStateListOf() }
-        if (list.isNotEmpty()) return
-        try {
-            val fmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-            chatStore.recent(key).forEach { row ->
-                list.add(parseStoredBody(row.direction, row.body, fmt.format(Date(row.createdAt))))
-            }
-        } catch (_: Exception) { }
-    }
 
     fun appendLog(p: Peer?, direction: String, body: String, alsoUi: Boolean = true) {
         val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
@@ -135,6 +128,48 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
         }
     }
 
+
+    /** 中继连上后：冲刷本机待发文本 */
+    fun flushOutbox(svc: IpMsgService) {
+        scope.launch(Dispatchers.IO) {
+            val rows = try { outbox.listAll() } catch (_: Exception) { emptyList() }
+            if (rows.isEmpty()) return@launch
+            for (row in rows) {
+                try {
+                    val ip = InetAddress.getByName("0.0.0.0")
+                    svc.sendText(ip, row.body, requireAck = false)
+                    outbox.delete(row.id)
+                    withContext(Dispatchers.Main) {
+                        val peer = users.firstOrNull { peerKey(it) == row.peerKey }
+                            ?: Peer(row.peerName, row.hostName, ip)
+                        appendLog(peer, "out", row.body)
+                        appendLog(peer, "sys", "（离线队列已补发）")
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        status = "待发补发失败: ${e.message}"
+                        statusColor = Color.Red
+                    }
+                    break
+                }
+            }
+        }
+    }
+
+
+    fun ensureHistory(p: Peer) {
+        val key = peerKey(p)
+        val list = chatLogs.getOrPut(key) { mutableStateListOf() }
+        if (list.isNotEmpty()) return
+        try {
+            val fmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            chatStore.recent(key).forEach { row ->
+                list.add(parseStoredBody(row.direction, row.body, fmt.format(Date(row.createdAt))))
+            }
+        } catch (_: Exception) { }
+    }
+
+
     /** 在气泡上更新/创建传输进度（不刷屏 sys 文字） */
     /** 进度叠在同一条富媒体气泡上（progress!=null 显示条；done 后 progress=null） */
     fun upsertProgress(p: Peer?, fileName: String, received: Long, total: Long, done: Boolean, savedPath: String?, error: String?) {
@@ -143,7 +178,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
         val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         fun matchIdx(): Int = list.indexOfLast {
             it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
-                (it.body.contains(fileName) || it.filePath?.endsWith(fileName) == true)
+                    (it.body.contains(fileName) || it.filePath?.endsWith(fileName) == true)
         }
 
         if (error != null) {
@@ -201,6 +236,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
     }
 
     fun stopService() {
+        try { FeiqKeepAliveService.stop(context) } catch (_: Exception) { }
         service?.stop()
         service = null
         transport?.close()
@@ -230,7 +266,8 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                         }
                         return@launch
                     }
-                    WebSocketTransport(url, clientId = "android-${android.os.Build.MODEL}")
+                    // 稳定 clientId → 服务端离线队列按此命中
+                    WebSocketTransport(url, clientId = settings.relayClientId)
                 } else {
                     UdpTransport(2425)
                 }
@@ -242,6 +279,25 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                     hostName = android.os.Build.MODEL
                 )
                 svc.downloadDir = settings.downloadDir
+
+                // WS：断线重连后重新上线广播 + 冲刷本机发件箱
+                t.onConnectionChanged = { connected ->
+                    scope.launch(Dispatchers.Main) {
+                        if (connected) {
+                            status = if (modeIndex == 1) "已连接中继" else "UDP 已启动"
+                            statusColor = ConnGreen
+                        } else if (modeIndex == 1 && service != null) {
+                            status = "中继断开，重连中…"
+                            statusColor = ConnAmber
+                        }
+                    }
+                    if (connected && modeIndex == 1) {
+                        scope.launch(Dispatchers.IO) {
+                            try { svc.announceOnline() } catch (_: Exception) { }
+                            flushOutbox(svc)
+                        }
+                    }
+                }
 
                 svc.onPeerOnline = { p ->
                     scope.launch(Dispatchers.Main) {
@@ -314,11 +370,20 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
 
                 svc.start()
                 service = svc
+                // 前台保活：UDP 防息屏丢包；WS 保持进程以便收服务端离线补发
+                try {
+                    FeiqKeepAliveService.start(
+                        context,
+                        if (modeIndex == 1) "ws" else "udp"
+                    )
+                } catch (_: Exception) { }
                 withContext(Dispatchers.Main) {
                     status = if (modeIndex == 1) "已连接中继" else "UDP 已启动"
                     statusColor = ConnGreen
                     loadSessionsFromStore()
                 }
+                // 首次连接也冲一次发件箱
+                if (modeIndex == 1) flushOutbox(svc)
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     status = "连接失败: ${e.message}"
@@ -378,7 +443,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                     val list = logsFor(live)
                     val idx = list.indexOfLast {
                         it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
-                            (it.body.contains(name) || it.filePath?.endsWith(name) == true)
+                                (it.body.contains(name) || it.filePath?.endsWith(name) == true)
                     }
                     if (idx >= 0) list[idx] = list[idx].copy(progress = null)
                 },
@@ -399,16 +464,58 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
             onClearHistory = { clearChat(peer) },
             onSendText = { text ->
                 val svc = service
+                val t = transport
+                val connected = t?.isConnected == true && svc != null
                 if (svc == null) {
-                    appendLog(peer, "sys", "未连接，请检查「我的」或网络")
+                    // 完全未启动：中继模式可进本机发件箱，等连上再发
+                    if (modeIndex == 1) {
+                        try {
+                            outbox.enqueue(peerKey(peer), peer.name, peer.hostName, text)
+                            appendLog(peer, "out", text)
+                            appendLog(peer, "sys", "未连接中继，已加入待发队列")
+                        } catch (e: Exception) {
+                            appendLog(peer, "sys", "无法入队: ${e.message}")
+                        }
+                    } else {
+                        appendLog(peer, "sys", "未连接，请检查「我的」或网络")
+                    }
+                } else if (!connected && modeIndex == 1) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            outbox.enqueue(peerKey(peer), peer.name, peer.hostName, text)
+                            withContext(Dispatchers.Main) {
+                                appendLog(peer, "out", text)
+                                appendLog(peer, "sys", "中继断开，已加入待发队列")
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                appendLog(peer, "sys", "入队失败: ${e.message}")
+                            }
+                        }
+                    }
                 } else {
                     scope.launch(Dispatchers.IO) {
                         try {
                             svc.sendText(peer.ip, text)
                             withContext(Dispatchers.Main) { appendLog(peer, "out", text) }
                         } catch (e: Exception) {
-                            withContext(Dispatchers.Main) {
-                                appendLog(peer, "sys", "发送失败: ${e.message}")
+                            // WS 发送失败：改入本机队列
+                            if (modeIndex == 1) {
+                                try {
+                                    outbox.enqueue(peerKey(peer), peer.name, peer.hostName, text)
+                                    withContext(Dispatchers.Main) {
+                                        appendLog(peer, "out", text)
+                                        appendLog(peer, "sys", "发送失败已入队，连上后自动补发")
+                                    }
+                                } catch (e2: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        appendLog(peer, "sys", "发送失败: ${e.message}")
+                                    }
+                                }
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    appendLog(peer, "sys", "发送失败: ${e.message}")
+                                }
                             }
                         }
                     }
@@ -446,7 +553,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                             val list = logsFor(peer)
                             val idx = list.indexOfLast {
                                 it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
-                                    (it.body.contains(name) || it.filePath?.endsWith(name) == true)
+                                        (it.body.contains(name) || it.filePath?.endsWith(name) == true)
                             }
                             if (idx >= 0) list[idx] = list[idx].copy(progress = null)
                         }
