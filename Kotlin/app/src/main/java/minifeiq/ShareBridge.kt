@@ -53,7 +53,7 @@ fun SharePeerPickerDialog() {
                 Spacer(Modifier.height(8.dp))
                 if (peers.isEmpty()) {
                     Text(
-                        "暂无在线联系人（连接成功后会自动出现）",
+                        "暂无联系人，请先连接；有过聊天的人会保留在列表中",
                         color = Color.Gray
                     )
                 } else {

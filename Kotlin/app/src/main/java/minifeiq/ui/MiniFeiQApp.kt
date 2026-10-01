@@ -54,7 +54,10 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
     var service by remember { mutableStateOf<IpMsgService?>(null) }
     var transport by remember { mutableStateOf<Transport?>(null) }
 
+    /** 当前在线（协议实时） */
     val users = remember { mutableStateListOf<Peer>() }
+    /** 会话列表：在线 ∪ 历史，离线不删除 */
+    val sessions = remember { mutableStateListOf<Peer>() }
     val unread = remember { mutableStateMapOf<String, Int>() }
     val chatLogs = remember { mutableStateMapOf<String, SnapshotStateList<ChatUiMsg>>() }
     var pendingOffer by remember { mutableStateOf<IncomingFileOffer?>(null) }
@@ -63,6 +66,41 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
     var avatarTick by remember { mutableIntStateOf(0) }
 
     fun peerKey(p: Peer) = ChatStore.peerKey(p)
+
+    fun onlineKeys(): Set<String> = users.map { peerKey(it) }.toSet()
+
+    /** 合入会话列表：已有则更新 name/ip，没有则插到最前 */
+    fun upsertSession(p: Peer) {
+        val key = peerKey(p)
+        val idx = sessions.indexOfFirst { peerKey(it) == key }
+        if (idx >= 0) sessions[idx] = p else sessions.add(0, p)
+    }
+
+    /** 从 ChatStore 加载历史会话，与当前在线合并 */
+    fun loadSessionsFromStore() {
+        try {
+            val fromDb = chatStore.listRecentSessions()
+            val ordered = mutableListOf<Peer>()
+            val seen = mutableSetOf<String>()
+            // 在线优先
+            for (p in users) {
+                val k = peerKey(p)
+                if (k !in seen) {
+                    ordered.add(p)
+                    seen.add(k)
+                }
+            }
+            // 历史补齐离线
+            for (s in fromDb) {
+                if (s.peerKey !in seen) {
+                    ordered.add(ChatStore.peerFromSession(s))
+                    seen.add(s.peerKey)
+                }
+            }
+            sessions.clear()
+            sessions.addAll(ordered)
+        } catch (_: Exception) { }
+    }
 
     fun logsFor(p: Peer): SnapshotStateList<ChatUiMsg> =
         chatLogs.getOrPut(peerKey(p)) { mutableStateListOf() }
@@ -84,6 +122,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
         if (p != null) {
             val key = peerKey(p)
             try { chatStore.add(key, p.name, direction, body) } catch (_: Exception) { }
+            upsertSession(p)
             if (alsoUi) {
                 logsFor(p).add(parseStoredBody(direction, body, ts))
             }
@@ -167,6 +206,8 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
         transport?.close()
         transport = null
         users.clear()
+        // 保留会话：历史联系人仍显示
+        loadSessionsFromStore()
         status = "未连接"
         statusColor = ConnGray
     }
@@ -204,7 +245,10 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
 
                 svc.onPeerOnline = { p ->
                     scope.launch(Dispatchers.Main) {
-                        if (users.none { peerKey(it) == peerKey(p) }) users.add(p)
+                        val key = peerKey(p)
+                        val i = users.indexOfFirst { peerKey(it) == key }
+                        if (i >= 0) users[i] = p else users.add(p)
+                        upsertSession(p)
                     }
                     // 向对方推送自己的头像（FeiQ2026）
                     scope.launch(Dispatchers.IO) {
@@ -216,6 +260,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                 }
                 svc.onPeerOffline = { p ->
                     scope.launch(Dispatchers.Main) {
+                        // 只移出在线集合，会话列表保留
                         users.removeAll { peerKey(it) == peerKey(p) }
                     }
                 }
@@ -272,6 +317,7 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                 withContext(Dispatchers.Main) {
                     status = if (modeIndex == 1) "已连接中继" else "UDP 已启动"
                     statusColor = ConnGreen
+                    loadSessionsFromStore()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -280,6 +326,11 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                 }
             }
         }
+    }
+
+    // 启动时先从历史恢复会话列表
+    LaunchedEffect(Unit) {
+        loadSessionsFromStore()
     }
 
     // 启动 / 模式变化 → 自动连接
@@ -292,20 +343,23 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
         onDispose { stopService() }
     }
 
-    // 系统分享：把在线列表 / 发文件挂到 ShareBridge，供分享弹窗使用
+    // 系统分享：选人 = 会话列表（在线∪最近）；发送时优先用在线同 key Peer
     SideEffect {
-        ShareBridge.updatePeers(users.toList())
+        val online = onlineKeys()
+        val shareList = sessions.toList().sortedByDescending { peerKey(it) in online }
+        ShareBridge.updatePeers(shareList)
         ShareBridge.sendToPeer = { peer, uri ->
+            val live = users.firstOrNull { peerKey(it) == peerKey(peer) } ?: peer
             shareSendFile(
                 scope = scope,
                 context = context,
                 service = service,
-                peer = peer,
+                peer = live,
                 uri = uri,
                 onPrepared = { name, path ->
-                    activeFilePeer = peer
-                    ensureHistory(peer)
-                    chatPeer = peer
+                    activeFilePeer = live
+                    ensureHistory(live)
+                    chatPeer = live
                     val kind = detectMsgKind(name)
                     val prefix = when (kind) {
                         MsgKind.Image -> "[图片]"
@@ -316,19 +370,19 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                     val storeBody = "$prefix $name|$path"
                     val ts0 = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
                         .format(java.util.Date())
-                    val list = logsFor(peer)
+                    val list = logsFor(live)
                     list.add(parseStoredBody("out", storeBody, ts0).copy(progress = 0f))
-                    try { chatStore.add(peerKey(peer), peer.name, "out", storeBody) } catch (_: Exception) { }
+                    try { chatStore.add(peerKey(live), live.name, "out", storeBody) } catch (_: Exception) { }
                 },
                 onDone = { name ->
-                    val list = logsFor(peer)
+                    val list = logsFor(live)
                     val idx = list.indexOfLast {
                         it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
                             (it.body.contains(name) || it.filePath?.endsWith(name) == true)
                     }
                     if (idx >= 0) list[idx] = list[idx].copy(progress = null)
                 },
-                onError = { msg -> appendLog(peer, "sys", msg) }
+                onError = { msg -> appendLog(live, "sys", msg) }
             )
         }
     }
@@ -427,7 +481,8 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
             Box(Modifier.padding(padding).fillMaxSize()) {
                 when (tab) {
                     0 -> ChatListScreen(
-                        users = users,
+                        sessions = sessions.toList(),
+                        onlineKeys = onlineKeys(),
                         unread = unread,
                         status = status,
                         statusColor = statusColor,
@@ -435,9 +490,11 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                         avatarTick = avatarTick,
                         onModeChange = { modeIndex = it },
                         onOpenChat = { p ->
-                            ensureHistory(p)
-                            unread[peerKey(p)] = 0
-                            chatPeer = p
+                            // 若在线有同 key，优先用在线 Peer（真实 IP）
+                            val live = users.firstOrNull { peerKey(it) == peerKey(p) } ?: p
+                            ensureHistory(live)
+                            unread[peerKey(live)] = 0
+                            chatPeer = live
                         },
                         onRefresh = {
                             scope.launch(Dispatchers.IO) {

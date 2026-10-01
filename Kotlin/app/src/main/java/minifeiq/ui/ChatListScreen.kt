@@ -17,9 +17,14 @@ import minifeiq.data.AvatarCache
 import minifeiq.data.ChatStore
 import minifeiq.service.Peer
 
+/**
+ * @param sessions 展示用会话列表（在线 ∪ 最近联系人，离线也保留）
+ * @param onlineKeys 当前在线 peerKey 集合，用于绿点/灰字
+ */
 @Composable
 internal fun ChatListScreen(
-    users: List<Peer>,
+    sessions: List<Peer>,
+    onlineKeys: Set<String>,
     unread: Map<String, Int>,
     status: String,
     statusColor: Color,
@@ -79,15 +84,16 @@ internal fun ChatListScreen(
 
         HorizontalDivider()
 
-        if (users.isEmpty()) {
+        if (sessions.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("暂无在线好友", color = Color.Gray)
+                Text("暂无会话，连接后或聊天后会出现在这里", color = Color.Gray)
             }
         } else {
             LazyColumn(Modifier.fillMaxSize().background(Color.White)) {
-                items(users, key = { ChatStore.peerKey(it) }) { peer ->
+                items(sessions, key = { ChatStore.peerKey(it) }) { peer ->
                     val key = ChatStore.peerKey(peer)
                     val n = unread[key] ?: 0
+                    val online = key in onlineKeys
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -96,17 +102,41 @@ internal fun ChatListScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val ctx = LocalContext.current
-                        val peerAv = AvatarCache.getPath(ctx, ChatStore.peerKey(peer))
-                        AvatarCircle(
-                            letter = peer.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                            bg = Color(0xFF12B7F5),
-                            imagePath = peerAv
-                        )
+                        val peerAv = AvatarCache.getPath(ctx, key)
+                        Box {
+                            AvatarCircle(
+                                letter = peer.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                                bg = if (online) Color(0xFF12B7F5) else Color(0xFF9E9E9E),
+                                imagePath = peerAv
+                            )
+                            // 右下角在线点
+                            Box(
+                                Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(12.dp)
+                                    .padding(1.dp)
+                            ) {
+                                ConnDot(if (online) ConnGreen else ConnGray)
+                            }
+                        }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(peer.name, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "${peer.hostName} · ${peer.ip.hostAddress}",
+                                peer.name,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (online) Color.Unspecified else Color(0xFF757575)
+                            )
+                            val sub = buildString {
+                                append(peer.hostName.ifBlank { "—" })
+                                val ip = peer.ip.hostAddress
+                                if (!ip.isNullOrBlank() && ip != "0.0.0.0") {
+                                    append(" · ")
+                                    append(ip)
+                                }
+                                if (!online) append(" · 离线")
+                            }
+                            Text(
+                                sub,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.Gray
                             )
