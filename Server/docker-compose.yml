@@ -9,4 +9,10 @@ services:
       - "9000:9000"
     environment:
       - ASPNETCORE_URLS=http://0.0.0.0:9000
+      - RELAY_DATA_DIR=/app/data
+    volumes:
+      - relay-data:/app/data
     restart: unless-stopped
+
+volumes:
+  relay-data:
