@@ -14,6 +14,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Extract version from tag
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/android/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/android/}"
+            VERSION_NAME="${TAG#v}"
+            # versionCode: 把 1.2.3 转成 10203 形式，便于递增
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION_NAME}"
+            MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+            VERSION_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+            echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+            echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "Extracted version_name=${VERSION_NAME} version_code=${VERSION_CODE}"
+          else
+            echo "version_name=0.0.0-dev" >> "$GITHUB_OUTPUT"
+            echo "version_code=1" >> "$GITHUB_OUTPUT"
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+            echo "Manual/dev run: version_name=0.0.0-dev version_code=1"
+          fi
+
       - name: Check Android project exists
         id: check
         shell: bash
@@ -40,6 +62,18 @@ jobs:
         if: steps.check.outputs.exists == 'true'
         run: chmod +x Kotlin/gradlew || true
 
+      - name: Inject version into build.gradle.kts
+        if: steps.check.outputs.exists == 'true'
+        shell: bash
+        run: |
+          GRADLE="Kotlin/app/build.gradle.kts"
+          if [ -f "$GRADLE" ]; then
+            sed -i "s/versionCode = .*/versionCode = ${{ steps.ver.outputs.version_code }}/" "$GRADLE"
+            sed -i "s/versionName = \".*\"/versionName = \"${{ steps.ver.outputs.version_name }}\"/" "$GRADLE"
+            echo "Injected versionName=${{ steps.ver.outputs.version_name }} versionCode=${{ steps.ver.outputs.version_code }}"
+            grep -E 'version(Code|Name)' "$GRADLE" || true
+          fi
+
       - name: Build Release APK
         if: steps.check.outputs.exists == 'true'
         working-directory: Kotlin
@@ -54,7 +88,7 @@ jobs:
         if: steps.check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: MiniFeiQ-Android
+          name: MiniFeiQ-Android-${{ steps.ver.outputs.version_name }}
           path: |
             Kotlin/app/build/outputs/apk/**/*.apk
             Kotlin/**/build/outputs/apk/**/*.apk
@@ -68,5 +102,9 @@ jobs:
           files: Kotlin/app/build/outputs/apk/**/*.apk
           generate_release_notes: true
           name: Android Release ${{ github.ref_name }}
+          body: |
+            ## MiniFeiQ Android ${{ steps.ver.outputs.version_name }}
+            - versionName: `${{ steps.ver.outputs.version_name }}`
+            - versionCode: `${{ steps.ver.outputs.version_code }}`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

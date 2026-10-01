@@ -15,13 +15,13 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 
 - [x] 消息持久化（SQLite）
 - [x] 头像设置（base64 随 UDP 包广播）
-- [ ] 镜像改名 minifeiq-relay 👉 feiq2026-relay
-- [ ] ci 和 Android & WPF Version 注入关联
+- [x] 镜像改名 minifeiq-relay 👉 feiq2026-relay
+- [x] ci 和 Android & WPF Version 注入关联
 - [ ] 图片、音频、视频，独立View显示
 - [ ] 长按语音发送
 - [ ] 实时童话、会议（WebRTC）
 - [ ] 消息通知（Windows Toast / Android Notification）
-- [ ] 图片压缩（大图走文件通道）
+- [ ] 客户端 Velopack
 - [ ] 传输加密（TLS）
 - [ ] 群组广播消息
 - [ ] macOS/Linux 客户端
@@ -74,5 +74,5 @@ git tag server/v1.0.0
 git push origin server/v1.0.0
 ```
 * **效果**：触发 Docker 构建，并向 GitHub Packages 自动推送以下镜像标签：
-  * `ghcr.io/.../minifeiq-relay:v1.0.0` (精准版本)
-  * `ghcr.io/.../minifeiq-relay:latest` (最新稳定版)
+  * `ghcr.io/.../feiq2026-relay:v1.0.0` (精准版本)
+  * `ghcr.io/.../feiq2026-relay:latest` (最新稳定版)
