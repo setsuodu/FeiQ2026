@@ -1,0 +1,15 @@
+services:
+  relay:
+    image: ghcr.io/setsuodu/feiq2026-relay:v1.1.0
+    container_name: feiq2026-relay
+    ports:
+      - "9000:9000"
+    environment:
+      - ASPNETCORE_URLS=http://0.0.0
+      - RELAY_DATA_DIR=/app/data
+    volumes:
+      - relay-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  relay-data:

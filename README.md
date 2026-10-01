@@ -1,4 +1,4 @@
-# MiniFeiQ
+# FeiQ2026
 
 模拟协议，可以与 FeiQ2013 通信。
 
@@ -18,14 +18,17 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 - [x] 镜像改名 minifeiq-relay 👉 feiq2026-relay
 - [x] ci 和 Android & WPF Version 注入关联
 - [x] 图片、音频、视频：图片&视频独立 MediaViewer（ExoPlayer）；音频 Chat 内点播
+- [x] 消息通知（Windows Toast）
+- [ ] 消息通知（Android JPush）
+- [ ] APK 更换包名：com.setsuodu.feiq
+- [ ] NAT 走 TCP应用+自动https。客户端全换：wss://s0.v100.vip:27658/ws
 - [ ] 长按语音发送
 - [ ] 实时童话、会议（WebRTC）
-- [ ] 消息通知（Windows Toast / Android Notification）
 - [ ] 图片压缩（大图走文件通道）
 - [ ] 传输加密（TLS）
 - [ ] 群组广播消息
 - [ ] macOS/Linux 客户端
-- [ ] CA证书 或 [微软开发者登记](https://www.microsoft.com/en-us/wdsi/filesubmission)
+- [ ] Windows CA证书 或 [微软开发者登记](https://www.microsoft.com/en-us/wdsi/filesubmission)
 
 ---
 
