@@ -26,7 +26,8 @@ public partial class ChatWindow : Window
     private readonly ChatStore _store;
     private readonly string _peerKey;
     private readonly ObservableCollection<ChatBubble> _messages = new();
-    private readonly Func<Peer, string, Task>? _sendText;
+    /// <summary>发送文本；返回非 null 时作为系统提示（如已入离线队列）</summary>
+    private readonly Func<Peer, string, Task<string?>>? _sendText;
     private readonly Func<Peer, string, Task>? _sendFile;
     private readonly string _peerLetter;
     private readonly string _selfLetter;
@@ -47,15 +48,13 @@ public partial class ChatWindow : Window
     public ChatWindow(
         Peer peer,
         ChatStore store,
-        Func<Peer, string, Task>? sendText,
+        Func<Peer, string, Task<string?>>? sendText,
         Func<Peer, string, Task>? sendFile)
     {
         InitializeComponent();
         Peer = peer;
         _store = store;
-        _peerKey = !string.IsNullOrWhiteSpace(peer.HostName)
-            ? "host:" + peer.HostName.Trim().ToLowerInvariant()
-            : "ip:" + peer.Ip;
+        _peerKey = ChatStore.MakePeerKey(peer);
         _sendText = sendText;
         _sendFile = sendFile;
 
@@ -165,9 +164,11 @@ public partial class ChatWindow : Window
         if (string.IsNullOrEmpty(text) || _sendText == null) return;
         try
         {
-            await _sendText(Peer, text);
+            var note = await _sendText(Peer, text);
             try { _store.Add(_peerKey, Peer.Name, "out", text); } catch { }
             _messages.Add(ParseStoredMessage("out", text));
+            if (!string.IsNullOrEmpty(note))
+                AppendSystem(note);
             Input.Clear();
             ScrollToEnd();
         }
@@ -176,6 +177,17 @@ public partial class ChatWindow : Window
             System.Windows.MessageBox.Show(ex.Message, "FeiQ 2026",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    /// <summary>外部（如 outbox 补发）追加发出的消息气泡，可选是否再写库</summary>
+    public void AppendOutgoing(string text, bool persist = true)
+    {
+        if (persist)
+        {
+            try { _store.Add(_peerKey, Peer.Name, "out", text); } catch { }
+        }
+        _messages.Add(ParseStoredMessage("out", text));
+        ScrollToEnd();
     }
 
     private async void SendFile_Click(object sender, RoutedEventArgs e)
@@ -232,7 +244,7 @@ public partial class ChatWindow : Window
             MessageBoxImage.Warning);
         if (result != MessageBoxResult.Yes) return;
 
-        try { _store.Clear(_peerKey); } catch { /* ignore */ }
+        try { _store.Clear(_peerKey, Peer.Name); } catch { /* ignore */ }
         _messages.Clear();
     }
 

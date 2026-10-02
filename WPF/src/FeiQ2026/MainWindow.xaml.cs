@@ -1,12 +1,15 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Net;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using FeiQ2026.Services;
 using FeiQ2026.Transport;
+using Brush = System.Windows.Media.Brush;
+using Color = System.Windows.Media.Color;
 
 namespace FeiQ2026;
 
@@ -16,19 +19,26 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, ChatWindow> _chats = new();
     private AppSettings _settings;
     private ChatStore _chatStore;
+    private OutboxStore _outbox;
     private IpMsgService? _service;
     private ITransport? _transport;
     private bool _forceClose;
+    /// <summary>当前在线 peer_key 集合（协议实时）</summary>
+    private readonly HashSet<string> _onlineKeys = new(StringComparer.Ordinal);
 
     public MainWindow()
     {
         InitializeComponent();
         _settings = AppSettings.Load();
         _chatStore = new ChatStore(_settings.ChatDbPath);
+        _outbox = new OutboxStore(Path.Combine(_settings.ChatDbDir, "outbox.db"));
 
         UserList.ItemsSource = _friends;
         ApplyProfileUi();
         ModeBox.SelectedIndex = _settings.LastModeIndex;
+
+        // 启动时先从历史恢复会话列表（离线联系人保留）
+        LoadSessionsFromStore();
 
         Loaded += async (_, _) => await StartServiceAsync();
     }
@@ -81,6 +91,9 @@ public partial class MainWindow : Window
         {
             _chatStore.Dispose();
             _chatStore = new ChatStore(_settings.ChatDbPath);
+            try { _outbox.Dispose(); } catch { }
+            _outbox = new OutboxStore(Path.Combine(_settings.ChatDbDir, "outbox.db"));
+            LoadSessionsFromStore();
         }
 
         // 头像变更：推给所有在线 FeiQ2026 好友
@@ -146,7 +159,12 @@ public partial class MainWindow : Window
             StatusText.Text = isWs ? "已连接中继" : "UDP 已启动 · 飞秋兼容";
             StatusText.Foreground = System.Windows.Media.Brushes.White;
             SetConnState(ok: true);
-            App.UpdateTrayTip($"FeiQ 2026（在线人数: {_friends.Count}）");
+            // 保留历史会话 + 合并当前在线
+            LoadSessionsFromStore();
+            UpdateOnlineCount();
+            // 中继连上后冲刷本机待发文本
+            if (isWs)
+                _ = FlushOutboxAsync();
         }
         catch (Exception ex)
         {
@@ -191,33 +209,27 @@ public partial class MainWindow : Window
             _service = null;
         }
         _transport = null;
-        _friends.Clear();
+        _onlineKeys.Clear();
+        // 保留会话：历史联系人仍显示，仅标记离线
+        foreach (var f in _friends)
+            f.IsOnline = false;
+        LoadSessionsFromStore();
         UpdateOnlineCount();
         SetConnState(ok: false);
     }
 
     /// <summary>
-    /// 聊天记录主键：用协议里的 HostName（机器名），比用户名/IP 稳定。
-    /// IPMSG 不带 MAC；路由器 ARP 表客户端拿不到。
+    /// 聊天记录主键：优先 HostName，其次用户名；忽略 Loopback/Any（WS 占位 IP）。
     /// </summary>
-    private static string PeerKey(Peer p)
-    {
-        var host = (p.HostName ?? "").Trim();
-        if (!string.IsNullOrEmpty(host))
-            return "host:" + host.ToLowerInvariant();
-        // 极端兜底（无主机名时）
-        return "ip:" + p.Ip;
-    }
+    private static string PeerKey(Peer p) => ChatStore.MakePeerKey(p);
 
     private void OnPeerOnline(Peer peer)
     {
         Dispatcher.Invoke(() =>
         {
             var key = PeerKey(peer);
-            if (_friends.All(f => PeerKey(f.Peer) != key))
-                _friends.Add(new FriendItem(peer));
-            else
-                RefreshFriendAvatar(key);
+            _onlineKeys.Add(key);
+            UpsertFriend(peer, isOnline: true);
             UpdateOnlineCount();
         });
         // 向新上线的 FeiQ2026 好友推送自己的头像
@@ -228,8 +240,12 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            var exist = _friends.FirstOrDefault(f => PeerKey(f.Peer) == PeerKey(peer));
-            if (exist != null) _friends.Remove(exist);
+            // 只移出在线集合，会话列表保留（与 Android 一致）
+            var key = PeerKey(peer);
+            _onlineKeys.Remove(key);
+            var exist = _friends.FirstOrDefault(f => PeerKey(f.Peer) == key);
+            if (exist != null)
+                exist.IsOnline = false;
             UpdateOnlineCount();
         });
     }
@@ -253,7 +269,10 @@ public partial class MainWindow : Window
         Dispatcher.Invoke(() =>
         {
             var key = PeerKey(peer);
+            // 离线消息 / 普通消息一律写入聊天记录
             try { _chatStore.Add(key, peer.Name, "in", text); } catch { /* ignore db errors */ }
+            // 有消息的联系人保留在列表（即便当时离线）
+            UpsertFriend(peer, isOnline: _onlineKeys.Contains(key));
 
             if (_chats.TryGetValue(key, out var chat) && chat.IsLoaded)
             {
@@ -266,6 +285,139 @@ public partial class MainWindow : Window
                 App.Balloon($"来自 {peer.Name}", text);
             }
         });
+    }
+
+    /// <summary>合入会话列表：已有则更新，没有则插到最前（按显示名/host 逻辑身份去重）</summary>
+    private void UpsertFriend(Peer peer, bool isOnline)
+    {
+        var key = PeerKey(peer);
+        if (key == "unknown") return;
+        var id = ChatStore.IdentityOf(key, peer.Name);
+        // 也用显示名直接比一次，防止 host 脏后缀导致 identity 不一致
+        var nameId = (peer.Name ?? "").Trim().ToLowerInvariant();
+        var exist = _friends.FirstOrDefault(f =>
+        {
+            var fid = ChatStore.IdentityOf(PeerKey(f.Peer), f.Peer.Name);
+            if (fid == id) return true;
+            var fn = (f.Peer.Name ?? "").Trim().ToLowerInvariant();
+            return !string.IsNullOrEmpty(nameId) && nameId == fn;
+        });
+        if (exist != null)
+        {
+            // 在线包优先覆盖（带真实 HostName/头像）
+            if (isOnline || string.IsNullOrWhiteSpace(exist.Peer.HostName))
+                exist.UpdatePeer(peer);
+            exist.IsOnline = isOnline || exist.IsOnline;
+            var idx = _friends.IndexOf(exist);
+            if (idx > 0)
+                _friends.Move(idx, 0);
+        }
+        else
+        {
+            _friends.Insert(0, new FriendItem(peer, isOnline));
+        }
+    }
+
+    /// <summary>从 ChatStore 加载历史会话，与当前在线合并（同逻辑身份只留一条）</summary>
+    private void LoadSessionsFromStore()
+    {
+        try
+        {
+            var fromDb = _chatStore.ListRecentSessions();
+            var ordered = new List<FriendItem>();
+            // 用 IdentityOf 去重，避免 host:xxx 与 name:xxx / ip:0.0.0.0 各占一条
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            bool TryAdd(FriendItem f)
+            {
+                var k = PeerKey(f.Peer);
+                if (k == "unknown") return false;
+                var id = ChatStore.IdentityOf(k, f.Peer.Name);
+                var nameId = (f.Peer.Name ?? "").Trim().ToLowerInvariant();
+                // 名字或 identity 任一已见过 → 合并
+                if (!seen.Add(id)) return false;
+                if (!string.IsNullOrEmpty(nameId) && id != nameId && !seen.Add(nameId))
+                {
+                    seen.Remove(id);
+                    return false;
+                }
+                f.IsOnline = _onlineKeys.Contains(k)
+                    || _onlineKeys.Any(ok => ChatStore.IdentityOf(ok, null) == id);
+                ordered.Add(f);
+                return true;
+            }
+
+            foreach (var f in _friends.Where(x => x.IsOnline).ToList())
+                TryAdd(f);
+            foreach (var f in _friends.ToList())
+                TryAdd(f);
+            foreach (var s in fromDb)
+            {
+                var k = ChatStore.CanonicalPeerKey(s.PeerKey, s.PeerName);
+                if (k == "unknown") continue;
+                var id = ChatStore.IdentityOf(k, s.PeerName);
+                var nameId = (s.PeerName ?? "").Trim().ToLowerInvariant();
+                if (!seen.Add(id)) continue;
+                if (!string.IsNullOrEmpty(nameId) && id != nameId && !seen.Add(nameId))
+                {
+                    seen.Remove(id);
+                    continue;
+                }
+                var p = ChatStore.PeerFromSession(s);
+                ordered.Add(new FriendItem(p, isOnline: _onlineKeys.Contains(k)
+                    || _onlineKeys.Any(ok => ChatStore.IdentityOf(ok, null) == id)));
+            }
+
+            _friends.Clear();
+            foreach (var item in ordered)
+                _friends.Add(item);
+        }
+        catch { /* ignore */ }
+    }
+
+    /// <summary>中继连上后：冲刷本机待发文本</summary>
+    private async Task FlushOutboxAsync()
+    {
+        if (_service == null) return;
+        List<OutboxRow> rows;
+        try { rows = _outbox.ListAll().ToList(); }
+        catch { return; }
+        if (rows.Count == 0) return;
+
+        foreach (var row in rows)
+        {
+            try
+            {
+                // 优先找在线同 key 的真实 IP；否则用 Any 让服务端按 host 路由
+                var live = _friends.FirstOrDefault(f => PeerKey(f.Peer) == row.PeerKey && f.IsOnline);
+                var ip = live?.Peer.Ip ?? IPAddress.Any;
+                await _service.SendTextAsync(ip, row.Body, requireAck: false);
+                _outbox.Delete(row.Id);
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    var peer = live?.Peer ?? new Peer
+                    {
+                        Name = row.PeerName,
+                        HostName = row.HostName,
+                        Ip = ip
+                    };
+                    try { _chatStore.Add(row.PeerKey, row.PeerName, "out", row.Body); } catch { }
+                    try { _chatStore.Add(row.PeerKey, row.PeerName, "sys", "（离线队列已补发）"); } catch { }
+                    UpsertFriend(peer, isOnline: live != null);
+                    if (_chats.TryGetValue(row.PeerKey, out var chat) && chat.IsLoaded)
+                    {
+                        chat.AppendOutgoing(row.Body, persist: false);
+                        chat.AppendSystem("（离线队列已补发）");
+                    }
+                });
+            }
+            catch
+            {
+                // 失败则停止，下次连上再试
+                break;
+            }
+        }
     }
 
     private void RefreshFriendAvatar(string peerKey)
@@ -393,8 +545,9 @@ public partial class MainWindow : Window
 
     private void UpdateOnlineCount()
     {
-        OnlineCountText.Text = $"({_friends.Count})";
-        App.UpdateTrayTip($"FeiQ 2026（在线人数: {_friends.Count}）");
+        var online = _onlineKeys.Count;
+        OnlineCountText.Text = $"({online}/{_friends.Count})";
+        App.UpdateTrayTip($"FeiQ 2026（在线: {online} · 会话: {_friends.Count}）");
     }
 
     private void UserList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -423,13 +576,32 @@ public partial class MainWindow : Window
             _chatStore,
             async (p, text) =>
             {
-                if (_service == null) throw new InvalidOperationException("未连接");
-                await _service.SendTextAsync(p.Ip, text);
+                var pk = PeerKey(p);
+                // 优先用当前在线同 key 的真实 IP
+                var live = _friends.FirstOrDefault(f => PeerKey(f.Peer) == pk && f.IsOnline);
+                var target = live?.Peer ?? p;
+
+                if (_service == null)
+                {
+                    // 本机未连中继：入待发队列（聊天记录由 ChatWindow 写入）
+                    _outbox.Enqueue(pk, p.Name, p.HostName ?? "", text);
+                    UpsertFriend(p, isOnline: false);
+                    return "（已入离线待发队列，连上中继后自动补发）";
+                }
+
+                // 对方离线（无真实 IP）时：仍尝试发送，由服务端入对方离线队列
+                await _service.SendTextAsync(target.Ip, text);
+                return null;
             },
             async (p, path) =>
             {
-                if (_service == null) throw new InvalidOperationException("未连接");
-                await _service.SendFileAsync(p.Ip, path);
+                if (_service == null) throw new InvalidOperationException("未连接，无法发文件");
+                var pk = PeerKey(p);
+                var live = _friends.FirstOrDefault(f => PeerKey(f.Peer) == pk && f.IsOnline);
+                var target = live?.Peer ?? p;
+                if (Equals(target.Ip, IPAddress.Any) || Equals(target.Ip, IPAddress.None))
+                    throw new InvalidOperationException("对方当前离线，暂不支持离线发文件");
+                await _service.SendFileAsync(target.Ip, path);
             });
         win.Closed += (_, _) => _chats.Remove(key);
         _chats[key] = win;
@@ -471,6 +643,7 @@ public partial class MainWindow : Window
         _chats.Clear();
         await StopServiceAsync();
         try { _chatStore.Dispose(); } catch { /* ignore */ }
+        try { _outbox.Dispose(); } catch { /* ignore */ }
         try
         {
             _settings.LastModeIndex = ModeBox.SelectedIndex;
@@ -490,10 +663,44 @@ public partial class MainWindow : Window
 
 public sealed class FriendItem : INotifyPropertyChanged
 {
-    public Peer Peer { get; }
-    public string Name => Peer.Name;
-    public string SubTitle => $"{Peer.HostName} · {Peer.Ip}";
-    public string AvatarLetter => string.IsNullOrEmpty(Peer.Name) ? "?" : Peer.Name[..1].ToUpperInvariant();
+    private Peer _peer;
+    public Peer Peer => _peer;
+    public string Name => _peer.Name;
+    public string SubTitle
+    {
+        get
+        {
+            var host = (_peer.HostName ?? "").Trim();
+            var pipe = host.IndexOf('|');
+            if (pipe > 0) host = host[..pipe].Trim();
+            var ip = _peer.Ip?.ToString() ?? "";
+            var placeholderIp = ip is "" or "0.0.0.0" or "127.0.0.1" or "::" or "::1";
+            if (!_isOnline || placeholderIp)
+                return string.IsNullOrEmpty(host) ? "离线" : $"{host} · 离线";
+            return string.IsNullOrEmpty(host) ? ip : $"{host} · {ip}";
+        }
+    }
+    public string AvatarLetter => string.IsNullOrEmpty(_peer.Name) ? "?" : _peer.Name[..1].ToUpperInvariant();
+
+    private bool _isOnline;
+    public bool IsOnline
+    {
+        get => _isOnline;
+        set
+        {
+            if (_isOnline == value) return;
+            _isOnline = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsOnline)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OnlineDotVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SubTitle)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(NameForeground)));
+        }
+    }
+
+    public Visibility OnlineDotVisibility => IsOnline ? Visibility.Visible : Visibility.Collapsed;
+    public Brush NameForeground => IsOnline
+        ? new SolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22))
+        : new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
 
     private ImageSource? _avatarImage;
     public ImageSource? AvatarImage
@@ -513,17 +720,24 @@ public sealed class FriendItem : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public FriendItem(Peer peer)
+    public FriendItem(Peer peer, bool isOnline = true)
     {
-        Peer = peer;
+        _peer = peer;
+        _isOnline = isOnline;
+        ReloadAvatar();
+    }
+
+    public void UpdatePeer(Peer peer)
+    {
+        _peer = peer;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SubTitle)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AvatarLetter)));
         ReloadAvatar();
     }
 
     public void ReloadAvatar()
     {
-        var key = !string.IsNullOrWhiteSpace(Peer.HostName)
-            ? "host:" + Peer.HostName.Trim().ToLowerInvariant()
-            : "ip:" + Peer.Ip;
-        AvatarImage = AvatarCache.LoadImage(key);
+        AvatarImage = AvatarCache.LoadImage(ChatStore.MakePeerKey(_peer));
     }
 }
