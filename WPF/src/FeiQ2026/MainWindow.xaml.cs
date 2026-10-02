@@ -597,11 +597,29 @@ public partial class MainWindow : Window
             {
                 if (_service == null) throw new InvalidOperationException("未连接，无法发文件");
                 var pk = PeerKey(p);
-                var live = _friends.FirstOrDefault(f => PeerKey(f.Peer) == pk && f.IsOnline);
+                var id = ChatStore.IdentityOf(pk, p.Name);
+                var live = _friends.FirstOrDefault(f =>
+                    f.IsOnline && ChatStore.IdentityOf(PeerKey(f.Peer), f.Peer.Name) == id);
                 var target = live?.Peer ?? p;
-                if (Equals(target.Ip, IPAddress.Any) || Equals(target.Ip, IPAddress.None))
-                    throw new InvalidOperationException("对方当前离线，暂不支持离线发文件");
-                await _service.SendFileAsync(target.Ip, path);
+                var isWs = ModeBox.SelectedIndex == 1;
+                // UDP 需要真实局域网 IP；WS 走中继，离线时由服务端入队（通知包），与 Android 一致
+                if (!isWs)
+                {
+                    var ip = target.Ip;
+                    if (ip is null
+                        || Equals(ip, IPAddress.Any)
+                        || Equals(ip, IPAddress.None)
+                        || Equals(ip, IPAddress.Loopback)
+                        || Equals(ip, IPAddress.IPv6Loopback))
+                        throw new InvalidOperationException("对方当前离线，局域网模式无法离线发文件（请切 WebSocket 中继）");
+                }
+                // WS：占位 IP 用 Loopback 即可，传输层忽略地址
+                var sendIp = target.Ip;
+                if (isWs && (sendIp is null
+                    || Equals(sendIp, IPAddress.Any)
+                    || Equals(sendIp, IPAddress.None)))
+                    sendIp = IPAddress.Loopback;
+                await _service.SendFileAsync(sendIp!, path);
             });
         win.Closed += (_, _) => _chats.Remove(key);
         _chats[key] = win;
@@ -674,9 +692,12 @@ public sealed class FriendItem : INotifyPropertyChanged
             var pipe = host.IndexOf('|');
             if (pipe > 0) host = host[..pipe].Trim();
             var ip = _peer.Ip?.ToString() ?? "";
-            var placeholderIp = ip is "" or "0.0.0.0" or "127.0.0.1" or "::" or "::1";
-            if (!_isOnline || placeholderIp)
+            // WS 在线也是 127.0.0.1，不能据此判离线；只看 IsOnline
+            if (!_isOnline)
                 return string.IsNullOrEmpty(host) ? "离线" : $"{host} · 离线";
+            var placeholderIp = ip is "" or "0.0.0.0" or "127.0.0.1" or "::" or "::1";
+            if (placeholderIp)
+                return string.IsNullOrEmpty(host) ? "在线（中继）" : $"{host} · 在线";
             return string.IsNullOrEmpty(host) ? ip : $"{host} · {ip}";
         }
     }
