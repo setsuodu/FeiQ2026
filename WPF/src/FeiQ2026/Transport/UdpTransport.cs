@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace MiniFeiQ.Transport;
+namespace FeiQ2026.Transport;
 
 /// <summary>
 /// 基于 UDP 的传输实现（飞秋2013 / IPMSG 默认方式）

@@ -1,4 +1,4 @@
-namespace MiniFeiQ.Protocol;
+namespace FeiQ2026.Protocol;
 
 /// <summary>
 /// IPMSG / 飞秋2013 命令字（低8位为基本命令，高位为选项）

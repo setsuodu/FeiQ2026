@@ -2,10 +2,10 @@ using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using MiniFeiQ.Services;
+using FeiQ2026.Services;
 using Forms = System.Windows.Forms;
 
-namespace MiniFeiQ;
+namespace FeiQ2026;
 
 public partial class SettingsWindow : Window
 {

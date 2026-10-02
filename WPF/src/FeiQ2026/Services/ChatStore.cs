@@ -1,7 +1,7 @@
 using System.IO;
 using Microsoft.Data.Sqlite;
 
-namespace MiniFeiQ.Services;
+namespace FeiQ2026.Services;
 
 public sealed class ChatMessageRow
 {

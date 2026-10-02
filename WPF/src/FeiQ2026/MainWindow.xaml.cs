@@ -5,10 +5,10 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using MiniFeiQ.Services;
-using MiniFeiQ.Transport;
+using FeiQ2026.Services;
+using FeiQ2026.Transport;
 
-namespace MiniFeiQ;
+namespace FeiQ2026;
 
 public partial class MainWindow : Window
 {

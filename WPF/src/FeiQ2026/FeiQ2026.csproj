@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <AssemblyName>FeiQ2026</AssemblyName>
-    <RootNamespace>MiniFeiQ</RootNamespace>
+    <RootNamespace>FeiQ2026</RootNamespace>
     <Product>FeiQ 2026</Product>
     <AssemblyTitle>FeiQ 2026</AssemblyTitle>
     <Description>FeiQ 2026 - 兼容飞秋2013的局域网/中继即时通讯</Description>

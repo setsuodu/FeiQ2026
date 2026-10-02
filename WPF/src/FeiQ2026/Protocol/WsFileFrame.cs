@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 
-namespace MiniFeiQ.Protocol;
+namespace FeiQ2026.Protocol;
 
 /// <summary>
 /// WebSocket 中继模式下的文件分片帧（因无法走 TCP 2425）。

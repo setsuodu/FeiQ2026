@@ -2,7 +2,7 @@ using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
-namespace MiniFeiQ.Services;
+namespace FeiQ2026.Services;
 
 /// <summary>
 /// FeiQ2026 之间同步的头像缓存（与飞秋2013无关）。

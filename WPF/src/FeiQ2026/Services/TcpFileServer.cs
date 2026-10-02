@@ -2,9 +2,9 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using MiniFeiQ.Protocol;
+using FeiQ2026.Protocol;
 
-namespace MiniFeiQ.Services;
+namespace FeiQ2026.Services;
 
 /// <summary>
 /// UDP 模式下的 TCP 文件服务（端口与 UDP 相同，默认 2425）。

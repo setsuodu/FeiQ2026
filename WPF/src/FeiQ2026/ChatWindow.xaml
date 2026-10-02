@@ -1,4 +1,4 @@
-<Window x:Class="MiniFeiQ.ChatWindow"
+<Window x:Class="FeiQ2026.ChatWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="聊天"

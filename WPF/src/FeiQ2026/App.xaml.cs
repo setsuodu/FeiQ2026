@@ -1,7 +1,7 @@
 using System.Windows;
 using Forms = System.Windows.Forms;
 
-namespace MiniFeiQ;
+namespace FeiQ2026;
 
 public partial class App : System.Windows.Application
 {

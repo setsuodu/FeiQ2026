@@ -1,7 +1,7 @@
 using System.IO;
 using System.Text.Json;
 
-namespace MiniFeiQ.Services;
+namespace FeiQ2026.Services;
 
 /// <summary>本地配置（用户名、头像、目录等），存 JSON。</summary>
 public sealed class AppSettings

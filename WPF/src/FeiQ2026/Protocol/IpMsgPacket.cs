@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace MiniFeiQ.Protocol;
+namespace FeiQ2026.Protocol;
 
 /// <summary>
 /// IPMSG 报文：版本:包序号:用户名:主机名:命令字:附加数据

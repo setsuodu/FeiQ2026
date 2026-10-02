@@ -6,7 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using MiniFeiQ.Services;
+using FeiQ2026.Services;
 using MediaColor = System.Windows.Media.Color;
 using MediaBrush = System.Windows.Media.Brush;
 using MediaBrushes = System.Windows.Media.Brushes;
@@ -18,7 +18,7 @@ using WpfButton = System.Windows.Controls.Button;
 using WpfMenuItem = System.Windows.Controls.MenuItem;
 using WpfContextMenu = System.Windows.Controls.ContextMenu;
 
-namespace MiniFeiQ;
+namespace FeiQ2026;
 
 public partial class ChatWindow : Window
 {

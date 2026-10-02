@@ -3,10 +3,10 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using MiniFeiQ.Protocol;
-using MiniFeiQ.Transport;
+using FeiQ2026.Protocol;
+using FeiQ2026.Transport;
 
-namespace MiniFeiQ.Services;
+namespace FeiQ2026.Services;
 
 public sealed class Peer
 {
@@ -74,7 +74,7 @@ public sealed class IpMsgService : IAsyncDisposable
 
     /// <summary>默认保存目录</summary>
     public string DownloadDir { get; set; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "MiniFeiQ");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "FeiQ2026");
 
     public IReadOnlyCollection<Peer> Peers
     {

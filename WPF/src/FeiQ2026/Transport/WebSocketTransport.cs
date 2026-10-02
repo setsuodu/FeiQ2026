@@ -3,7 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.WebSockets;
 
-namespace MiniFeiQ.Transport;
+namespace FeiQ2026.Transport;
 
 /// <summary>
 /// WebSocket 传输实现。

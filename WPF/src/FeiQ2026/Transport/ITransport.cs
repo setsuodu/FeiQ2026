@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace MiniFeiQ.Transport;
+namespace FeiQ2026.Transport;
 
 /// <summary>
 /// 传输层抽象。后续可实现 WebSocket / 纯TCP / KCP / QUIC 等，
