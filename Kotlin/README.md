@@ -1,4 +1,4 @@
-# MiniFeiQ Android
+# FeiQ2026 Android
 
 飞秋 / IPMsg 兼容客户端（Android 版），由原 Android Mobile Apk 工程移植。
 

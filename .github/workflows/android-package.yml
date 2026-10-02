@@ -88,7 +88,7 @@ jobs:
         if: steps.check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: MiniFeiQ-Android-${{ steps.ver.outputs.version_name }}
+          name: FeiQ2026-Android-${{ steps.ver.outputs.version_name }}
           path: |
             Kotlin/app/build/outputs/apk/**/*.apk
             Kotlin/**/build/outputs/apk/**/*.apk
@@ -103,7 +103,7 @@ jobs:
           generate_release_notes: true
           name: Android Release ${{ github.ref_name }}
           body: |
-            ## MiniFeiQ Android ${{ steps.ver.outputs.version_name }}
+            ## FeiQ2026 Android ${{ steps.ver.outputs.version_name }}
             - versionName: `${{ steps.ver.outputs.version_name }}`
             - versionCode: `${{ steps.ver.outputs.version_code }}`
         env:

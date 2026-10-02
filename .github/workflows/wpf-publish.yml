@@ -36,7 +36,7 @@ jobs:
       - name: Inject version into csproj
         shell: pwsh
         run: |
-          $csproj = "WPF/src/MiniFeiQ/MiniFeiQ.csproj"
+          $csproj = "WPF/src/FeiQ2026/FeiQ2026.csproj"
           $ver = "${{ steps.ver.outputs.version }}"
           # 在 PropertyGroup 里注入 Version / FileVersion / InformationalVersion
           $content = Get-Content $csproj -Raw
@@ -52,11 +52,11 @@ jobs:
           Select-String -Path $csproj -Pattern 'Version|FileVersion|InformationalVersion'
 
       - name: Restore
-        run: dotnet restore WPF/src/MiniFeiQ/MiniFeiQ.csproj
+        run: dotnet restore WPF/src/FeiQ2026/FeiQ2026.csproj
 
       - name: Publish (single-file, self-contained, win-x64)
         run: >-
-          dotnet publish WPF/src/MiniFeiQ/MiniFeiQ.csproj
+          dotnet publish WPF/src/FeiQ2026/FeiQ2026.csproj
           -c Release
           -r win-x64
           --self-contained true

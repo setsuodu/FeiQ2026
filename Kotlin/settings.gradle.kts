@@ -15,5 +15,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "MiniFeiQ"
+rootProject.name = "FeiQ2026"
 include(":app")
