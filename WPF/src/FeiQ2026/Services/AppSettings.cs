@@ -18,6 +18,8 @@ public sealed class AppSettings
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FeiQ2026");
     public string LastServerUrl { get; set; } = "wss://s0.v100.vip:27658/ws";
     public int LastModeIndex { get; set; } // 0=UDP 1=WS
+    /// <summary>是否开机启动（写入当前用户 Run 注册表）</summary>
+    public bool StartWithWindows { get; set; }
 
     public string ChatDbPath => Path.Combine(ChatDbDir, "chat.db");
 

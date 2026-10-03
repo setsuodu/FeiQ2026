@@ -158,6 +158,79 @@ public partial class ChatWindow : Window
         }
     }
 
+    /// <summary>
+    /// 表情选择弹窗。当前使用 Unicode 表情；若 Assets/Emoji 下有 png 素材可扩展为图片表情。
+    /// 素材目录说明见 Assets/Emoji/README.md
+    /// </summary>
+    private void Emoji_Click(object sender, RoutedEventArgs e)
+    {
+        var popup = new System.Windows.Controls.Primitives.Popup
+        {
+            PlacementTarget = EmojiBtn,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Top,
+            StaysOpen = false,
+            AllowsTransparency = true
+        };
+
+        var border = new System.Windows.Controls.Border
+        {
+            Background = MediaBrushes.White,
+            BorderBrush = new SolidColorBrush(MediaColor.FromRgb(0xDD, 0xDD, 0xDD)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(8),
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                BlurRadius = 8,
+                ShadowDepth = 2,
+                Opacity = 0.25
+            }
+        };
+
+        var wrap = new System.Windows.Controls.WrapPanel { Width = 280 };
+
+        // 常用 Unicode 表情（无需额外素材即可使用）
+        string[] emojis =
+        {
+            "😀","😁","😂","🤣","😊","😍","😘","😜","🤔","😎",
+            "😢","😭","😡","👍","👎","👏","🙏","❤️","💔","🔥",
+            "🎉","✨","💯","✅","❌","⭐","🌟","💡","📌","📎",
+            "📷","🎵","🎬","📁","💻","📱","☕","🍺","🍕","🎁"
+        };
+
+        foreach (var emoji in emojis)
+        {
+            var btn = new WpfButton
+            {
+                Content = emoji,
+                Width = 36,
+                Height = 36,
+                FontSize = 18,
+                Margin = new Thickness(2),
+                Background = MediaBrushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Cursor = WpfCursors.Hand,
+                Tag = emoji
+            };
+            btn.Click += (s, _) =>
+            {
+                if (s is WpfButton b && b.Tag is string em)
+                {
+                    var caret = Input.CaretIndex;
+                    Input.Text = Input.Text.Insert(caret, em);
+                    Input.CaretIndex = caret + em.Length;
+                    Input.Focus();
+                }
+                popup.IsOpen = false;
+            };
+            wrap.Children.Add(btn);
+        }
+
+        border.Child = wrap;
+        popup.Child = border;
+        popup.IsOpen = true;
+    }
+
     private async void Send_Click(object sender, RoutedEventArgs e)
     {
         var text = Input.Text?.Trim();

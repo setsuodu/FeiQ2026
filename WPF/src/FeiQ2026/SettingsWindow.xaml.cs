@@ -3,12 +3,16 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using FeiQ2026.Services;
+using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 
 namespace FeiQ2026;
 
 public partial class SettingsWindow : Window
 {
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string RunValueName = "FeiQ2026";
+
     private readonly AppSettings _settings;
     private string? _avatarPath;
 
@@ -22,6 +26,7 @@ public partial class SettingsWindow : Window
         ServerUrlBox.Text = settings.LastServerUrl;
         DownloadDirBox.Text = settings.DownloadDir;
         ChatDirBox.Text = settings.ChatDbDir;
+        StartWithWindowsCheck.IsChecked = settings.StartWithWindows || IsStartupRegistered();
         RefreshAvatarPreview();
     }
 
@@ -117,9 +122,54 @@ public partial class SettingsWindow : Window
             _settings.LastServerUrl = url;
         _settings.DownloadDir = DownloadDirBox.Text?.Trim() ?? _settings.DownloadDir;
         _settings.ChatDbDir = ChatDirBox.Text?.Trim() ?? _settings.ChatDbDir;
+        _settings.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
         _settings.Save();
+
+        try
+        {
+            ApplyStartupRegistry(_settings.StartWithWindows);
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(
+                "开机启动设置写入注册表失败：\n" + ex.Message,
+                "FeiQ 2026",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
 
         DialogResult = true;
         Close();
+    }
+
+    private static bool IsStartupRegistered()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, false);
+            return key?.GetValue(RunValueName) != null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void ApplyStartupRegistry(bool enable)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, true)
+            ?? Registry.CurrentUser.CreateSubKey(RunKeyPath, true);
+
+        if (enable)
+        {
+            var exe = Environment.ProcessPath
+                ?? System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName
+                ?? throw new InvalidOperationException("无法获取当前程序路径");
+            key.SetValue(RunValueName, $"\"{exe}\"");
+        }
+        else
+        {
+            key.DeleteValue(RunValueName, false);
+        }
     }
 }

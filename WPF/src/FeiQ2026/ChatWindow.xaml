@@ -147,6 +147,9 @@
         <!-- 工具条 -->
         <Border Grid.Row="2" Background="White" BorderBrush="#E5E5E5" BorderThickness="0,1,0,0" Padding="8,4">
             <StackPanel Orientation="Horizontal">
+                <Button x:Name="EmojiBtn" Content="😀" Width="36" Height="28" FontSize="16" Padding="0"
+                        Click="Emoji_Click" Margin="0,0,6,0"
+                        Background="#F0F0F0" BorderBrush="#DDD" Cursor="Hand" ToolTip="表情"/>
                 <Button Content="发送文件" Padding="10,4" Click="SendFile_Click" Margin="0,0,6,0"
                         Background="#F0F0F0" BorderBrush="#DDD" Cursor="Hand"/>
             </StackPanel>
