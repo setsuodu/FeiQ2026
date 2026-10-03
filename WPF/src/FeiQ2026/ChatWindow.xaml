@@ -84,6 +84,9 @@
                                             Background="{Binding BubbleBrush}">
                                         <Border.ContextMenu>
                                             <ContextMenu>
+                                                <MenuItem Header="复制"
+                                                          Click="CopyBubble_Click"
+                                                          Visibility="{Binding TextVisibility}"/>
                                                 <MenuItem Header="打开所在位置"
                                                           Click="OpenFolder_Click"
                                                           Visibility="{Binding OpenFolderVisibility}"/>
@@ -112,13 +115,23 @@
                                                     </StackPanel>
                                                 </DockPanel>
                                             </Border>
-                                            <!-- 纯文本（无表情图） -->
-                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="13"
-                                                       Foreground="{Binding TextBrush}"
-                                                       Visibility="{Binding PlainTextVisibility}"
-                                                       Cursor="{Binding TextCursor}"
-                                                       MouseLeftButtonUp="Url_Click"/>
-                                            <!-- 混排：文字 + 表情图片 -->
+                                            <!-- 纯文本（无表情图）：用只读 TextBox 支持选中/复制 -->
+                                            <TextBox Text="{Binding Text}" TextWrapping="Wrap" FontSize="13"
+                                                     Foreground="{Binding TextBrush}"
+                                                     Visibility="{Binding PlainTextVisibility}"
+                                                     Cursor="{Binding TextCursor}"
+                                                     IsReadOnly="True"
+                                                     BorderThickness="0"
+                                                     Background="Transparent"
+                                                     Padding="0"
+                                                     Margin="0"
+                                                     IsTabStop="False"
+                                                     AcceptsReturn="True"
+                                                     VerticalScrollBarVisibility="Disabled"
+                                                     HorizontalScrollBarVisibility="Disabled"
+                                                     Focusable="True"
+                                                     PreviewMouseLeftButtonUp="Url_Click"/>
+                                            <!-- 混排：文字 + 表情图片（可右键复制整段） -->
                                             <ItemsControl ItemsSource="{Binding Segments}"
                                                           Visibility="{Binding RichTextVisibility}">
                                                 <ItemsControl.ItemsPanel>
@@ -129,10 +142,17 @@
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
                                                         <Grid>
-                                                            <TextBlock Text="{Binding Text}" FontSize="13"
-                                                                       Foreground="{Binding DataContext.TextBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                                       VerticalAlignment="Center"
-                                                                       Visibility="{Binding TextVisibility}"/>
+                                                            <TextBox Text="{Binding Text}" FontSize="13"
+                                                                     Foreground="{Binding DataContext.TextBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                     VerticalAlignment="Center"
+                                                                     Visibility="{Binding TextVisibility}"
+                                                                     IsReadOnly="True"
+                                                                     BorderThickness="0"
+                                                                     Background="Transparent"
+                                                                     Padding="0"
+                                                                     Margin="0"
+                                                                     IsTabStop="False"
+                                                                     Focusable="True"/>
                                                             <Image Source="{Binding Image}" Width="22" Height="22"
                                                                    Margin="1,0" VerticalAlignment="Center"
                                                                    Visibility="{Binding ImageVisibility}"/>

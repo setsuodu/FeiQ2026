@@ -278,11 +278,11 @@ public partial class MainWindow : Window
             {
                 chat.AppendIncoming(text, persist: false);
                 if (!chat.IsActive)
-                    App.Balloon($"来自 {peer.Name}", text);
+                    App.Balloon($"来自 {peer.Name}", text, peer);
             }
             else
             {
-                App.Balloon($"来自 {peer.Name}", text);
+                App.Balloon($"来自 {peer.Name}", text, peer);
             }
         });
     }
@@ -554,6 +554,15 @@ public partial class MainWindow : Window
     {
         if (UserList.SelectedItem is FriendItem item)
             OpenChat(item.Peer);
+    }
+
+    /// <summary>由托盘通知点击调用：打开（或激活）与 peer 的聊天窗口，并确保主窗口可见。</summary>
+    public void OpenChatFromNotification(Peer peer)
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+        OpenChat(peer);
     }
 
     private ChatWindow? OpenChat(Peer peer)

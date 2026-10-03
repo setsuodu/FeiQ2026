@@ -368,6 +368,10 @@ public partial class ChatWindow : Window
 
     private void Url_Click(object sender, MouseButtonEventArgs e)
     {
+        // 若正在拖选文字则不打开链接
+        if (sender is System.Windows.Controls.TextBox tb && tb.SelectionLength > 0)
+            return;
+
         if (sender is FrameworkElement fe && fe.DataContext is ChatBubble bubble
             && bubble.Kind == FileKind.Url && !string.IsNullOrEmpty(bubble.MediaPath))
         {
@@ -400,6 +404,21 @@ public partial class ChatWindow : Window
             {
                 System.Windows.MessageBox.Show($"无法打开所在位置：{ex.Message}", "FeiQ 2026");
             }
+        }
+    }
+
+    private void CopyBubble_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is WpfMenuItem mi && mi.Parent is WpfContextMenu cm
+            && cm.PlacementTarget is FrameworkElement fe
+            && fe.DataContext is ChatBubble bubble
+            && !string.IsNullOrWhiteSpace(bubble.Text))
+        {
+            try
+            {
+                System.Windows.Clipboard.SetText(bubble.Text);
+            }
+            catch { /* ignore */ }
         }
     }
 

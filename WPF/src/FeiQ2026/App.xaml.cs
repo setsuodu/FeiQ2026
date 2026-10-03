@@ -1,4 +1,5 @@
 using System.Windows;
+using FeiQ2026.Services;
 using Forms = System.Windows.Forms;
 
 namespace FeiQ2026;
@@ -7,6 +8,7 @@ public partial class App : System.Windows.Application
 {
     private static Forms.NotifyIcon? _tray;
     private static MainWindow? _main;
+    private static Peer? _lastBalloonPeer;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -35,6 +37,14 @@ public partial class App : System.Windows.Application
         _tray.ContextMenuStrip = menu;
 
         _tray.DoubleClick += (_, _) => ShowMain();
+        // 点击 Windows 气泡通知 → 打开对应 Chat 窗口（无 peer 时打开主面板）
+        _tray.BalloonTipClicked += (_, _) =>
+        {
+            if (_lastBalloonPeer != null && _main != null)
+                _main.OpenChatFromNotification(_lastBalloonPeer);
+            else
+                ShowMain();
+        };
     }
 
     private static System.Drawing.Icon LoadTrayIcon()
@@ -64,10 +74,12 @@ public partial class App : System.Windows.Application
         _tray.Text = tip.Length <= 63 ? tip : tip[..63];
     }
 
-    public static void Balloon(string title, string text)
+    /// <param name="peer">若提供，点击通知时会打开与该 peer 的 Chat 窗口</param>
+    public static void Balloon(string title, string text, Peer? peer = null)
     {
         try
         {
+            _lastBalloonPeer = peer;
             _tray?.ShowBalloonTip(3000, title,
                 text.Length > 80 ? text[..80] + "…" : text,
                 Forms.ToolTipIcon.Info);
