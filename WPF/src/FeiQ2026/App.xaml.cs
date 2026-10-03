@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Windows;
 using FeiQ2026.Services;
 using Forms = System.Windows.Forms;
@@ -6,12 +7,40 @@ namespace FeiQ2026;
 
 public partial class App : System.Windows.Application
 {
+    /// <summary>
+    /// 本机单实例互斥体。软件绑定机器而非账号，同一台机器只允许一个进程。
+    /// </summary>
+    private static Mutex? _singleInstanceMutex;
+    private const string MutexName = "Global\\FeiQ2026_SingleInstance";
+
     private static Forms.NotifyIcon? _tray;
     private static MainWindow? _main;
     private static Peer? _lastBalloonPeer;
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        bool createdNew;
+        try
+        {
+            _singleInstanceMutex = new Mutex(true, MutexName, out createdNew);
+        }
+        catch
+        {
+            // 权限或命名空间异常时仍尝试继续，避免误杀启动
+            createdNew = true;
+        }
+
+        if (!createdNew)
+        {
+            System.Windows.MessageBox.Show(
+                "FeiQ 2026 已经在运行中。\n\n本软件按机器绑定，同一台电脑只允许打开一个实例。",
+                "已在运行",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            Shutdown();
+            return;
+        }
+
         base.OnStartup(e);
 
         _main = new MainWindow();
@@ -107,6 +136,13 @@ public partial class App : System.Windows.Application
             _tray.Dispose();
             _tray = null;
         }
+        try
+        {
+            _singleInstanceMutex?.ReleaseMutex();
+            _singleInstanceMutex?.Dispose();
+            _singleInstanceMutex = null;
+        }
+        catch { /* ignore */ }
         base.OnExit(e);
     }
 }
