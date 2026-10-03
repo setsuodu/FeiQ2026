@@ -235,6 +235,16 @@ fun EmojiPickerPanel(
 ) {
     val context = LocalContext.current
     val cats = remember { EmojiCatalog.categories(context) }
+    // 展平：标题用 span，表情按网格排，避免实验 API FlowRow
+    data class RowItem(val title: String? = null, val emoji: EmojiItem? = null)
+    val rows = remember(cats) {
+        buildList {
+            cats.forEach { cat ->
+                add(RowItem(title = cat.categoryTitle))
+                cat.emojis.forEach { add(RowItem(emoji = it)) }
+            }
+        }
+    }
 
     Column(
         Modifier
@@ -243,41 +253,40 @@ fun EmojiPickerPanel(
             .background(Color.White)
     ) {
         HorizontalDivider()
-        androidx.compose.foundation.lazy.LazyColumn(
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+            columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(40.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp)
+                .padding(8.dp),
+            contentPadding = PaddingValues(4.dp)
         ) {
-            cats.forEach { cat ->
-                item {
-                    Text(
-                        cat.categoryTitle,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.Gray,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                }
-                item {
-                    androidx.compose.foundation.layout.FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Start
-                    ) {
-                        cat.emojis.forEach { item ->
-                            val bmp = remember(item.code) { EmojiCatalog.getBitmap(context, item) }
-                            TextButton(
-                                onClick = { onPick(item.char) },
-                                contentPadding = PaddingValues(4.dp),
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                if (bmp != null) {
-                                    Image(
-                                        bitmap = bmp,
-                                        contentDescription = item.shortcode,
-                                        modifier = Modifier.size(28.dp)
-                                    )
-                                } else {
-                                    Text(item.char, style = MaterialTheme.typography.titleMedium)
-                                }
+            rows.forEach { row ->
+                if (row.title != null) {
+                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            row.title,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+                } else if (row.emoji != null) {
+                    val item = row.emoji
+                    item {
+                        val bmp = remember(item.code) { EmojiCatalog.getBitmap(context, item) }
+                        TextButton(
+                            onClick = { onPick(item.char) },
+                            contentPadding = PaddingValues(4.dp),
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            if (bmp != null) {
+                                Image(
+                                    bitmap = bmp,
+                                    contentDescription = item.shortcode,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            } else {
+                                Text(item.char, style = MaterialTheme.typography.titleMedium)
                             }
                         }
                     }

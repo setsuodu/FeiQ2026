@@ -14,7 +14,7 @@ from pathlib import Path
 
 # ========== 改这里 ==========
 SRC_DIR = Path(r"C:\Users\Administrator\Downloads\emoji-assets-master\png\64")          # 3~4k 图的源目录
-DST_DIR = Path(r"D:\GitHub\[Workspace]\FeiQ2026\WPF\src\FeiQ2026\Assets\Emoji")  # 目标
+DST_DIR = Path(r"D:\GitHub\[Workspace]\FeiQ2026\Kotlin\app\src\main\assets\emoji")  # 目标
 # ===========================
 
 # 预设 40 个（和代码里一致）

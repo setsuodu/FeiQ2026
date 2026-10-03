@@ -90,7 +90,66 @@ public sealed class IpMsgService : IAsyncDisposable
         _isWebSocket = transport is WebSocketTransport;
 
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        _encoding = Encoding.GetEncoding("GBK");
+        _encoding = Encoding.GetEncoding("GBK"); // 兼容飞秋2013
+        // UTF-8 用于含 emoji / 非 GBK 字符的报文
+    }
+
+    /// <summary>
+    /// 智能解码：优先识别 UTF-8（emoji），否则 GBK。
+    /// 飞秋2013 纯中文仍走 GBK；本客户端互发表情走 UTF-8。
+    /// </summary>
+    private string DecodePacket(byte[] buffer)
+    {
+        // 明显合法的 UTF-8（含多字节）优先
+        if (LooksLikeUtf8(buffer))
+        {
+            try { return Encoding.UTF8.GetString(buffer); }
+            catch { /* fall through */ }
+        }
+        try { return _encoding.GetString(buffer); }
+        catch { return Encoding.UTF8.GetString(buffer); }
+    }
+
+    private static bool LooksLikeUtf8(byte[] data)
+    {
+        int i = 0;
+        bool hasMulti = false;
+        while (i < data.Length)
+        {
+            byte b = data[i];
+            if (b <= 0x7F) { i++; continue; }
+            int need;
+            if ((b & 0xE0) == 0xC0) need = 1;
+            else if ((b & 0xF0) == 0xE0) need = 2;
+            else if ((b & 0xF8) == 0xF0) need = 3;
+            else return false;
+            if (i + need >= data.Length) return false;
+            for (int j = 1; j <= need; j++)
+                if ((data[i + j] & 0xC0) != 0x80) return false;
+            i += need + 1;
+            hasMulti = true;
+        }
+        return hasMulti; // 纯 ASCII 也可用 GBK，交给 GBK 即可
+    }
+
+    /// <summary>能完整用 GBK 表示则用 GBK，否则 UTF-8（保留 emoji）</summary>
+    private byte[] EncodePacket(IpMsgPacket pkt)
+    {
+        if (CanEncodeGbk(pkt.Extra) && CanEncodeGbk(pkt.UserName)
+            && CanEncodeGbk(pkt.HostName) && CanEncodeGbk(pkt.FileExtra))
+            return pkt.ToBytes(_encoding);
+        return pkt.ToBytes(Encoding.UTF8);
+    }
+
+    private bool CanEncodeGbk(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return true;
+        try
+        {
+            var bytes = _encoding.GetBytes(s);
+            return _encoding.GetString(bytes) == s;
+        }
+        catch { return false; }
     }
 
     public async Task StartAsync(CancellationToken ct = default)
@@ -117,7 +176,7 @@ public sealed class IpMsgService : IAsyncDisposable
     public async Task AnnounceOnlineAsync(CancellationToken ct = default)
     {
         var pkt = BuildPacket(IpMsgCommands.BrEntry, _userName);
-        var data = pkt.ToBytes(_encoding);
+        var data = EncodePacket(pkt);
         if (_transport.SupportsBroadcast)
             await _transport.BroadcastAsync(data, _transport.LocalPort, ct).ConfigureAwait(false);
     }
@@ -125,7 +184,7 @@ public sealed class IpMsgService : IAsyncDisposable
     public async Task AnnounceOfflineAsync(CancellationToken ct = default)
     {
         var pkt = BuildPacket(IpMsgCommands.BrExit, _userName);
-        var data = pkt.ToBytes(_encoding);
+        var data = EncodePacket(pkt);
         if (_transport.SupportsBroadcast)
             await _transport.BroadcastAsync(data, _transport.LocalPort, ct).ConfigureAwait(false);
     }
@@ -134,7 +193,7 @@ public sealed class IpMsgService : IAsyncDisposable
     {
         var cmd = IpMsgCommands.SendMsg | (requireAck ? IpMsgCommands.SendCheckOpt : 0);
         var pkt = BuildPacket(cmd, text);
-        var data = pkt.ToBytes(_encoding);
+        var data = EncodePacket(pkt);
         await _transport.SendAsync(data, new IPEndPoint(targetIp, _transport.LocalPort), ct)
             .ConfigureAwait(false);
     }
@@ -183,7 +242,7 @@ public sealed class IpMsgService : IAsyncDisposable
             Extra = message ?? fi.Name,
             FileExtra = attach.ToExtraString()
         };
-        var data = pkt.ToBytes(_encoding);
+        var data = EncodePacket(pkt);
         await _transport.SendAsync(data, new IPEndPoint(targetIp, _transport.LocalPort), ct)
             .ConfigureAwait(false);
 
@@ -255,7 +314,7 @@ public sealed class IpMsgService : IAsyncDisposable
             // 请求对方开始推（若对方是旧逻辑已主动推，则无害）
             var extra = $"{offer.PacketNo:x}:{offer.Info.FileId:x}:0";
             var pkt = BuildPacket(IpMsgCommands.GetFileData, extra);
-            await _transport.SendAsync(pkt.ToBytes(_encoding),
+            await _transport.SendAsync(EncodePacket(pkt),
                 new IPEndPoint(IPAddress.Loopback, 0), ct).ConfigureAwait(false);
             return;
         }
@@ -276,7 +335,7 @@ public sealed class IpMsgService : IAsyncDisposable
 
             var extra = $"{packetNo:x}:{info.FileId:x}:0";
             var pkt = BuildPacket(IpMsgCommands.GetFileData, extra);
-            var req = pkt.ToBytes(_encoding);
+            var req = EncodePacket(pkt);
             await stream.WriteAsync(req, ct).ConfigureAwait(false);
 
             await using var fs = new FileStream(savePath, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -334,7 +393,7 @@ public sealed class IpMsgService : IAsyncDisposable
         }
 
         string text;
-        try { text = _encoding.GetString(buffer); }
+        try { text = DecodePacket(buffer); }
         catch { return; }
 
         var pkt = IpMsgPacket.TryParse(text);
@@ -535,7 +594,7 @@ public sealed class IpMsgService : IAsyncDisposable
         try
         {
             var pkt = BuildPacket(IpMsgCommands.AnsEntry, _userName);
-            await _transport.SendAsync(pkt.ToBytes(_encoding),
+            await _transport.SendAsync(EncodePacket(pkt),
                 new IPEndPoint(ip, _transport.LocalPort)).ConfigureAwait(false);
         }
         catch { }
@@ -546,7 +605,7 @@ public sealed class IpMsgService : IAsyncDisposable
         try
         {
             var pkt = BuildPacket(IpMsgCommands.RecvMsg, packetNo.ToString());
-            await _transport.SendAsync(pkt.ToBytes(_encoding),
+            await _transport.SendAsync(EncodePacket(pkt),
                 new IPEndPoint(ip, _transport.LocalPort)).ConfigureAwait(false);
         }
         catch { }

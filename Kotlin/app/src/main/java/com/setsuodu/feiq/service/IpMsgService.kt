@@ -60,7 +60,8 @@ class IpMsgService(
 ) {
     private val userName = userName ?: "AndroidUser"
     private val hostName = hostName ?: "android"
-    private val charset: Charset = Charset.forName("GBK")
+    private val charset: Charset = Charset.forName("GBK") // 兼容飞秋2013
+    private val utf8: Charset = Charsets.UTF_8
     private val packetNo = AtomicLong(System.currentTimeMillis() / 1000)
     private val nextFileId = AtomicInteger(1)
     private val isWebSocket = transport is WebSocketTransport
@@ -89,6 +90,56 @@ class IpMsgService(
             startTcpServer(peerPort())
         }
         announceOnline()
+    }
+
+    /** 智能解码：优先 UTF-8（emoji），否则 GBK（飞秋2013） */
+    private fun decodePacket(buffer: ByteArray): String {
+        if (looksLikeUtf8(buffer)) {
+            return try { String(buffer, utf8) } catch (_: Exception) { String(buffer, charset) }
+        }
+        return try { String(buffer, charset) } catch (_: Exception) { String(buffer, utf8) }
+    }
+
+    private fun looksLikeUtf8(data: ByteArray): Boolean {
+        var i = 0
+        var hasMulti = false
+        while (i < data.size) {
+            val b = data[i].toInt() and 0xFF
+            if (b <= 0x7F) { i++; continue }
+            val need = when {
+                b and 0xE0 == 0xC0 -> 1
+                b and 0xF0 == 0xE0 -> 2
+                b and 0xF8 == 0xF0 -> 3
+                else -> return false
+            }
+            if (i + need >= data.size) return false
+            for (j in 1..need) {
+                if (data[i + j].toInt() and 0xC0 != 0x80) return false
+            }
+            i += need + 1
+            hasMulti = true
+        }
+        return hasMulti
+    }
+
+    /** 能完整 GBK 表示则用 GBK，否则 UTF-8（保留 emoji） */
+    private fun encodePacket(pkt: IpMsgPacket): ByteArray {
+        if (canEncodeGbk(pkt.extra) && canEncodeGbk(pkt.userName)
+            && canEncodeGbk(pkt.hostName) && canEncodeGbk(pkt.fileExtra)
+        ) {
+            return pkt.toBytes(charset)
+        }
+        return pkt.toBytes(utf8)
+    }
+
+    private fun canEncodeGbk(s: String?): Boolean {
+        if (s.isNullOrEmpty()) return true
+        return try {
+            val bytes = s.toByteArray(charset)
+            String(bytes, charset) == s
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun startTcpServer(port: Int) {
@@ -163,21 +214,21 @@ class IpMsgService(
     suspend fun announceOnline() {
         val pkt = buildPacket(IpMsgCommands.BrEntry, userName)
         if (transport.supportsBroadcast) {
-            transport.broadcast(pkt.toBytes(charset), peerPort())
+            transport.broadcast(encodePacket(pkt), peerPort())
         }
     }
 
     suspend fun announceOffline() {
         val pkt = buildPacket(IpMsgCommands.BrExit, userName)
         if (transport.supportsBroadcast) {
-            transport.broadcast(pkt.toBytes(charset), peerPort())
+            transport.broadcast(encodePacket(pkt), peerPort())
         }
     }
 
     suspend fun sendText(targetIp: InetAddress, text: String, requireAck: Boolean = true) {
         val cmd = IpMsgCommands.SendMsg or (if (requireAck) IpMsgCommands.SendCheckOpt else 0)
         val pkt = buildPacket(cmd, text)
-        transport.send(pkt.toBytes(charset), InetSocketAddress(targetIp, peerPort()))
+        transport.send(encodePacket(pkt), InetSocketAddress(targetIp, peerPort()))
     }
 
     suspend fun sendFile(targetIp: InetAddress, filePath: String, message: String? = null) {
@@ -206,7 +257,7 @@ class IpMsgService(
             extra = message ?: file.name,
             fileExtra = attach.toExtraString()
         )
-        transport.send(pkt.toBytes(charset), InetSocketAddress(targetIp, peerPort()))
+        transport.send(encodePacket(pkt), InetSocketAddress(targetIp, peerPort()))
         // WS：等对方 GETFILEDATA 再推
     }
 
@@ -225,7 +276,7 @@ class IpMsgService(
             )
             val extra = "${offer.packetNo.toString(16)}:${offer.info.fileId.toString(16)}:0"
             val pkt = buildPacket(IpMsgCommands.GetFileData, extra)
-            transport.send(pkt.toBytes(charset), InetSocketAddress("127.0.0.1", 0))
+            transport.send(encodePacket(pkt), InetSocketAddress("127.0.0.1", 0))
             return
         }
 
@@ -239,7 +290,7 @@ class IpMsgService(
                     sock.soTimeout = 60_000
                     val extra = "${pNo.toString(16)}:${info.fileId.toString(16)}:0"
                     val pkt = buildPacket(IpMsgCommands.GetFileData, extra)
-                    val req = pkt.toBytes(charset)
+                    val req = encodePacket(pkt)
                     sock.getOutputStream().write(req)
                     sock.getOutputStream().flush()
 
@@ -281,7 +332,7 @@ class IpMsgService(
         }
 
         val text = try {
-            String(buffer, charset)
+            decodePacket(buffer)
         } catch (_: Exception) {
             return
         }
@@ -431,7 +482,7 @@ class IpMsgService(
     private suspend fun replyAnsEntry(ip: InetAddress) {
         try {
             val pkt = buildPacket(IpMsgCommands.AnsEntry, userName)
-            transport.send(pkt.toBytes(charset), InetSocketAddress(ip, peerPort()))
+            transport.send(encodePacket(pkt), InetSocketAddress(ip, peerPort()))
         } catch (_: Exception) {
         }
     }
@@ -439,7 +490,7 @@ class IpMsgService(
     private suspend fun replyRecvMsg(ip: InetAddress, no: Long) {
         try {
             val pkt = buildPacket(IpMsgCommands.RecvMsg, no.toString())
-            transport.send(pkt.toBytes(charset), InetSocketAddress(ip, peerPort()))
+            transport.send(encodePacket(pkt), InetSocketAddress(ip, peerPort()))
         } catch (_: Exception) {
         }
     }
