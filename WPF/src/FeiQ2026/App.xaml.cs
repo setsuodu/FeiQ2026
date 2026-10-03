@@ -2,6 +2,7 @@ using System.Threading;
 using System.Windows;
 using FeiQ2026.Services;
 using Forms = System.Windows.Forms;
+using Velopack;
 
 namespace FeiQ2026;
 
@@ -16,6 +17,36 @@ public partial class App : System.Windows.Application
     private static Forms.NotifyIcon? _tray;
     private static MainWindow? _main;
     private static Peer? _lastBalloonPeer;
+
+    /// <summary>
+    /// 自定义入口：Velopack 必须在任意 UI / 业务逻辑之前 Run()。
+    /// csproj 中已设置 StartupObject=FeiQ2026.App，并移除了默认 ApplicationDefinition。
+    /// </summary>
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        try
+        {
+            VelopackApp.Build()
+                .OnFirstRun(_ =>
+                {
+                    // 首次安装后的欢迎提示（可选）
+                })
+                .Run();
+
+            var app = new App();
+            app.InitializeComponent();
+            app.Run();
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(
+                "启动失败：\n" + ex,
+                "FeiQ 2026",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {

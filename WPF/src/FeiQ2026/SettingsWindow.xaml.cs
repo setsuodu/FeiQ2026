@@ -95,6 +95,25 @@ public partial class SettingsWindow : Window
             ChatDirBox.Text = dlg.SelectedPath;
     }
 
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateBtn.IsEnabled = false;
+        try
+        {
+            await UpdateService.CheckAndUpdateInteractiveAsync(
+                this,
+                status =>
+                {
+                    UpdateStatusText.Text = status;
+                });
+        }
+        finally
+        {
+            CheckUpdateBtn.IsEnabled = true;
+        }
+    }
+
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
         DialogResult = false;

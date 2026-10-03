@@ -54,7 +54,8 @@ jobs:
       - name: Restore
         run: dotnet restore WPF/src/FeiQ2026/FeiQ2026.csproj
 
-      - name: Publish (single-file, self-contained, win-x64)
+      - name: Publish (self-contained, win-x64)
+        # Velopack 建议发布到目录后用 vpk pack；保留单文件便于绿色版下载
         run: >-
           dotnet publish WPF/src/FeiQ2026/FeiQ2026.csproj
           -c Release
@@ -66,11 +67,35 @@ jobs:
           -p:Version=${{ steps.ver.outputs.version }}
           -o publish
 
+      - name: Install Velopack CLI (vpk)
+        shell: pwsh
+        run: |
+          dotnet tool install -g vpk --version 1.2.161
+          echo "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+
+      - name: Pack with Velopack
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path releases | Out-Null
+          vpk pack `
+            --packId FeiQ2026 `
+            --packVersion $ver `
+            --packDir .\publish `
+            --mainExe FeiQ2026.exe `
+            --icon .\WPF\src\FeiQ2026\Assets\app.ico `
+            --outputDir .\releases `
+            --packTitle "FeiQ 2026" `
+            --packAuthors setsuodu
+          Get-ChildItem .\releases | Format-Table Name, Length
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: FeiQ2026-WPF-win-x64-${{ steps.ver.outputs.version }}
-          path: publish/
+          path: |
+            publish/
+            releases/
           if-no-files-found: error
           retention-days: 14
 
@@ -78,12 +103,17 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/wpf/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: publish/FeiQ2026.exe
+          # 绿色单文件 + Velopack 安装包与 releases 清单（GithubSource 依赖这些资源）
+          files: |
+            publish/FeiQ2026.exe
+            releases/*
           generate_release_notes: true
           name: FeiQ 2026 WPF Release ${{ github.ref_name }}
           body: |
             ## FeiQ 2026 WPF ${{ steps.ver.outputs.version }}
             - Version: `${{ steps.ver.outputs.version }}`
-            - 单文件自包含 win-x64
+            - **推荐安装**：`FeiQ2026-win-Setup.exe`（Velopack，支持自动更新）
+            - 绿色单文件：`FeiQ2026.exe`（无自动更新）
+            - 更新源：本仓库 GitHub Releases
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

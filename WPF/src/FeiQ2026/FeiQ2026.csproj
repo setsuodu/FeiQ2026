@@ -19,10 +19,18 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>embedded</DebugType>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <!-- Velopack: 自定义 Main，覆盖 WPF 默认入口 -->
+    <StartupObject>FeiQ2026.App</StartupObject>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- 让 SDK 不再把 App.xaml 当作 ApplicationDefinition，以便自定义 Main -->
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.12" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\app.ico" />

@@ -40,7 +40,12 @@ public partial class MainWindow : Window
         // 启动时先从历史恢复会话列表（离线联系人保留）
         LoadSessionsFromStore();
 
-        Loaded += async (_, _) => await StartServiceAsync();
+        Loaded += async (_, _) =>
+        {
+            await StartServiceAsync();
+            // 启动后静默检查更新（仅 Velopack 安装包有效）
+            _ = UpdateService.CheckSilentlyAsync();
+        };
     }
 
     public void ForceClose()

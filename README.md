@@ -24,7 +24,7 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 	- OPPO/VIVO个人可以申请
 - [x] APK 更换包名：com.setsuodu.feiq
 - [x] NAT 走 TCP应用+自动https。客户端全换：wss://s0.v100.vip:27658/ws
-- [ ] WPF Velopack
+- [x] WPF Velopack
 - [ ] 长按语音发送
 - [ ] 实时童话、会议（WebRTC）
 - [ ] 图片压缩（大图走文件通道）
