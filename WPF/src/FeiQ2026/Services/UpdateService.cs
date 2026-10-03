@@ -2,6 +2,7 @@ using System.Windows;
 using Velopack;
 using Velopack.Exceptions;
 using Velopack.Sources;
+using MessageBox = System.Windows.MessageBox;
 
 namespace FeiQ2026.Services;
 
