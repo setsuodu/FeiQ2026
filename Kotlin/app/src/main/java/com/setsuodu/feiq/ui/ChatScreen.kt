@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -104,6 +105,7 @@ internal fun ChatScreen(
                 ) {
                     keyboard?.hide()
                     focusManager.clearFocus()
+                    emojiOpen = false
                 }
         ) {
             items(logs) { msg ->
@@ -133,8 +135,8 @@ internal fun ChatScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color.White)
-                .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Bottom
         ) {
             TextButton(
                 onClick = {
@@ -148,23 +150,35 @@ internal fun ChatScreen(
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 56.dp, max = 140.dp)
+                    .onFocusChanged { state ->
+                        if (state.isFocused) {
+                            emojiOpen = false
+                        }
+                    },
+                singleLine = false,
+                maxLines = 5,
+                minLines = 1,
                 placeholder = { Text("输入消息...") }
             )
             Spacer(Modifier.width(6.dp))
-            Button(
-                onClick = {
-                    val text = input.trim()
-                    if (text.isEmpty()) return@Button
-                    onSendText(text)
-                    input = ""
-                    emojiOpen = false
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = WeChatGreen)
-            ) { Text("发送") }
-            Spacer(Modifier.width(4.dp))
-            OutlinedButton(onClick = { pickFileLauncher.launch("*/*") }) { Text("文件") }
+            val hasText = input.trim().isNotEmpty()
+            if (hasText) {
+                Button(
+                    onClick = {
+                        val text = input.trim()
+                        if (text.isEmpty()) return@Button
+                        onSendText(text)
+                        input = ""
+                        emojiOpen = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = WeChatGreen)
+                ) { Text("发送") }
+            } else {
+                OutlinedButton(onClick = { pickFileLauncher.launch("*/*") }) { Text("文件") }
+            }
         }
     }
 
