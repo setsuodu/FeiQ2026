@@ -159,9 +159,8 @@ public partial class ChatWindow : Window
     }
 
     /// <summary>
-    /// 表情选择弹窗。优先显示 Assets/Emoji 下的图片（文件名=codepoint），没有则回退 Unicode。
-    /// 点击后仍插入 Unicode 字符（兼容飞秋2013 / Android），不发 [emoji:xxx]。
-    /// 映射表见 Services/EmojiCatalog.cs
+    /// 表情选择弹窗。从 emoji_map.json 加载分类，有图显示图片，点击插入 Unicode。
+    /// 气泡会把 Unicode 渲染成图片；输入框仍显示系统 Unicode（TextBox 限制）。
     /// </summary>
     private void Emoji_Click(object sender, RoutedEventArgs e)
     {
@@ -180,6 +179,7 @@ public partial class ChatWindow : Window
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(8),
+            MaxHeight = 320,
             Effect = new System.Windows.Media.Effects.DropShadowEffect
             {
                 BlurRadius = 8,
@@ -188,55 +188,68 @@ public partial class ChatWindow : Window
             }
         };
 
-        var wrap = new System.Windows.Controls.WrapPanel { Width = 280 };
-
-        foreach (var entry in Services.EmojiCatalog.Preset)
+        var scroll = new System.Windows.Controls.ScrollViewer
         {
-            var img = Services.EmojiCatalog.GetImage(entry);
-            object content;
-            if (img != null)
-            {
-                content = new System.Windows.Controls.Image
-                {
-                    Source = img,
-                    Width = 28,
-                    Height = 28,
-                    Stretch = Stretch.Uniform
-                };
-            }
-            else
-            {
-                content = entry.Unicode; // 没素材就显示 Unicode
-            }
+            VerticalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto,
+            MaxHeight = 300
+        };
+        var root = new System.Windows.Controls.StackPanel();
 
-            var btn = new WpfButton
+        foreach (var cat in Services.EmojiCatalog.Categories)
+        {
+            root.Children.Add(new System.Windows.Controls.TextBlock
             {
-                Content = content,
-                Width = 36,
-                Height = 36,
-                FontSize = 18,
-                Margin = new Thickness(2),
-                Background = MediaBrushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Cursor = WpfCursors.Hand,
-                Tag = entry.Unicode,
-                ToolTip = $"{entry.ShortName} ({entry.Codepoint})"
-            };
-            btn.Click += (s, _) =>
+                Text = cat.CategoryTitle,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(MediaColor.FromRgb(0x88, 0x88, 0x88)),
+                Margin = new Thickness(4, 6, 4, 2)
+            });
+
+            var wrap = new System.Windows.Controls.WrapPanel { Width = 280 };
+            foreach (var item in cat.Emojis)
             {
-                if (s is WpfButton b && b.Tag is string em)
+                var img = Services.EmojiCatalog.GetImage(item);
+                object content = img != null
+                    ? new System.Windows.Controls.Image
+                    {
+                        Source = img,
+                        Width = 28,
+                        Height = 28,
+                        Stretch = Stretch.Uniform
+                    }
+                    : item.Char;
+
+                var btn = new WpfButton
                 {
-                    var caret = Input.CaretIndex;
-                    Input.Text = Input.Text.Insert(caret, em);
-                    Input.CaretIndex = caret + em.Length;
-                    Input.Focus();
-                }
-                popup.IsOpen = false;
-            };
-            wrap.Children.Add(btn);
+                    Content = content,
+                    Width = 36,
+                    Height = 36,
+                    FontSize = 18,
+                    Margin = new Thickness(2),
+                    Background = MediaBrushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    Cursor = WpfCursors.Hand,
+                    Tag = item.Char,
+                    ToolTip = $"{item.Shortcode} ({item.Code})"
+                };
+                btn.Click += (s, _) =>
+                {
+                    if (s is WpfButton b && b.Tag is string em)
+                    {
+                        var caret = Input.CaretIndex;
+                        Input.Text = Input.Text.Insert(caret, em);
+                        Input.CaretIndex = caret + em.Length;
+                        Input.Focus();
+                    }
+                    popup.IsOpen = false;
+                };
+                wrap.Children.Add(btn);
+            }
+            root.Children.Add(wrap);
         }
 
-        border.Child = wrap;
+        scroll.Content = root;
+        border.Child = scroll;
         popup.Child = border;
         popup.IsOpen = true;
     }
@@ -462,22 +475,43 @@ public partial class ChatWindow : Window
         IsSystem = true
     };
 
-    private ChatBubble MakeTextBubble(string text, bool isOutgoing, DateTime? at = null) => new()
+    private ChatBubble MakeTextBubble(string text, bool isOutgoing, DateTime? at = null)
     {
-        Text = text,
-        Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
-        Align = isOutgoing ? WpfHorizontalAlignment.Right : WpfHorizontalAlignment.Left,
-        BubbleBrush = isOutgoing
-            ? new SolidColorBrush(MediaColor.FromRgb(0x95, 0xEC, 0x69))
-            : MediaBrushes.White,
-        TextBrush = MediaBrushes.Black,
-        Kind = FileKind.Text,
-        IsOutgoing = isOutgoing,
-        PeerAvatarLetter = _peerLetter,
-        PeerAvatarImage = _peerAvatarImage,
-        SelfAvatarLetter = _selfLetter,
-        SelfAvatarImage = _selfAvatarImage
-    };
+        var segs = BuildSegments(text);
+        return new ChatBubble
+        {
+            Text = text,
+            Time = (at ?? DateTime.Now).ToString("HH:mm:ss"),
+            Align = isOutgoing ? WpfHorizontalAlignment.Right : WpfHorizontalAlignment.Left,
+            BubbleBrush = isOutgoing
+                ? new SolidColorBrush(MediaColor.FromRgb(0x95, 0xEC, 0x69))
+                : MediaBrushes.White,
+            TextBrush = MediaBrushes.Black,
+            Kind = FileKind.Text,
+            IsOutgoing = isOutgoing,
+            PeerAvatarLetter = _peerLetter,
+            PeerAvatarImage = _peerAvatarImage,
+            SelfAvatarLetter = _selfLetter,
+            SelfAvatarImage = _selfAvatarImage,
+            Segments = segs
+        };
+    }
+
+    /// <summary>把文本拆成文字/表情图片段（用于气泡混排）</summary>
+    private static List<EmojiSegment> BuildSegments(string? text)
+    {
+        var list = new List<EmojiSegment>();
+        if (string.IsNullOrEmpty(text)) return list;
+        foreach (var (isEmoji, s, img) in Services.EmojiCatalog.ParseSegments(text))
+        {
+            list.Add(new EmojiSegment
+            {
+                Text = isEmoji ? "" : s,
+                Image = img
+            });
+        }
+        return list;
+    }
 
     private ChatBubble MakeUrlBubble(string url, bool isOutgoing, DateTime? at = null) => new()
     {
@@ -567,6 +601,15 @@ public enum FileKind
     Url
 }
 
+/// <summary>气泡内混排片段：纯文字 或 表情图</summary>
+public sealed class EmojiSegment
+{
+    public string Text { get; init; } = "";
+    public ImageSource? Image { get; init; }
+    public WpfVisibility TextVisibility => Image == null ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+    public WpfVisibility ImageVisibility => Image != null ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+}
+
 public sealed class ChatBubble
 {
     public string Text { get; init; } = "";
@@ -581,6 +624,9 @@ public sealed class ChatBubble
     public string TypeIcon { get; init; } = "";
     public string TypeLabel { get; init; } = "";
     public ImageSource? ImageSource { get; init; }
+
+    /// <summary>富文本片段（有表情图时用）</summary>
+    public List<EmojiSegment> Segments { get; init; } = new();
 
     public bool IsSystem { get; init; }
     public bool IsOutgoing { get; init; }
@@ -628,6 +674,18 @@ public sealed class ChatBubble
             return WpfVisibility.Collapsed;
         }
     }
+
+    /// <summary>有表情图片段时用富文本，否则用普通 TextBlock</summary>
+    public bool HasRichEmoji =>
+        (Kind == FileKind.Text || Kind == FileKind.Url) && Segments.Any(s => s.Image != null);
+
+    public WpfVisibility PlainTextVisibility =>
+        (Kind == FileKind.Text || Kind == FileKind.Url) && !HasRichEmoji
+            ? WpfVisibility.Visible
+            : WpfVisibility.Collapsed;
+
+    public WpfVisibility RichTextVisibility =>
+        HasRichEmoji ? WpfVisibility.Visible : WpfVisibility.Collapsed;
 
     public WpfVisibility TextVisibility =>
         Kind == FileKind.Text || Kind == FileKind.Url

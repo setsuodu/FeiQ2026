@@ -37,6 +37,8 @@ internal fun ChatScreen(
     var input by remember { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var emojiOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     val pickFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -117,6 +119,16 @@ internal fun ChatScreen(
             }
         }
 
+        // 表情面板
+        if (emojiOpen) {
+            EmojiPickerPanel(
+                onPick = { emoji ->
+                    input += emoji
+                },
+                onClose = { emojiOpen = false }
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -124,6 +136,15 @@ internal fun ChatScreen(
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            TextButton(
+                onClick = {
+                    emojiOpen = !emojiOpen
+                    if (emojiOpen) {
+                        keyboard?.hide()
+                        focusManager.clearFocus()
+                    }
+                }
+            ) { Text(if (emojiOpen) "⌨️" else "😀", style = MaterialTheme.typography.titleMedium) }
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -138,6 +159,7 @@ internal fun ChatScreen(
                     if (text.isEmpty()) return@Button
                     onSendText(text)
                     input = ""
+                    emojiOpen = false
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = WeChatGreen)
             ) { Text("发送") }

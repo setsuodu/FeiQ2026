@@ -190,15 +190,18 @@ internal fun BubbleContent(msg: ChatUiMsg, context: Context) {
                 FileCard(msg, onClick = openFile)
             }
             msg.kind == MsgKind.Url -> {
-                Text(
-                    msg.body,
+                EmojiText(
+                    text = msg.body,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF12B7F5),
                     modifier = Modifier.clickable { openFile() }
                 )
             }
             else -> {
-                Text(msg.body, style = MaterialTheme.typography.bodyMedium)
+                EmojiText(
+                    text = msg.body,
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         }
         // 非图片富媒体：进度条叠在卡片下方（同一气泡内）
