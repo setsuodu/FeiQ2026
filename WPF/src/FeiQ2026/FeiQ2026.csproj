@@ -26,5 +26,7 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\app.ico" />
+    <!-- 表情素材：复制到输出目录，运行时从磁盘加载（不嵌入，方便用户自己换图） -->
+    <Content Include="Assets\Emoji\**\*.*" CopyToOutputDirectory="PreserveNewest" Link="Assets\Emoji\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

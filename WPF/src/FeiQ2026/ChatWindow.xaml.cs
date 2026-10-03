@@ -159,8 +159,9 @@ public partial class ChatWindow : Window
     }
 
     /// <summary>
-    /// 表情选择弹窗。当前使用 Unicode 表情；若 Assets/Emoji 下有 png 素材可扩展为图片表情。
-    /// 素材目录说明见 Assets/Emoji/README.md
+    /// 表情选择弹窗。优先显示 Assets/Emoji 下的图片（文件名=codepoint），没有则回退 Unicode。
+    /// 点击后仍插入 Unicode 字符（兼容飞秋2013 / Android），不发 [emoji:xxx]。
+    /// 映射表见 Services/EmojiCatalog.cs
     /// </summary>
     private void Emoji_Click(object sender, RoutedEventArgs e)
     {
@@ -189,20 +190,28 @@ public partial class ChatWindow : Window
 
         var wrap = new System.Windows.Controls.WrapPanel { Width = 280 };
 
-        // 常用 Unicode 表情（无需额外素材即可使用）
-        string[] emojis =
+        foreach (var entry in Services.EmojiCatalog.Preset)
         {
-            "😀","😁","😂","🤣","😊","😍","😘","😜","🤔","😎",
-            "😢","😭","😡","👍","👎","👏","🙏","❤️","💔","🔥",
-            "🎉","✨","💯","✅","❌","⭐","🌟","💡","📌","📎",
-            "📷","🎵","🎬","📁","💻","📱","☕","🍺","🍕","🎁"
-        };
+            var img = Services.EmojiCatalog.GetImage(entry);
+            object content;
+            if (img != null)
+            {
+                content = new System.Windows.Controls.Image
+                {
+                    Source = img,
+                    Width = 28,
+                    Height = 28,
+                    Stretch = Stretch.Uniform
+                };
+            }
+            else
+            {
+                content = entry.Unicode; // 没素材就显示 Unicode
+            }
 
-        foreach (var emoji in emojis)
-        {
             var btn = new WpfButton
             {
-                Content = emoji,
+                Content = content,
                 Width = 36,
                 Height = 36,
                 FontSize = 18,
@@ -210,7 +219,8 @@ public partial class ChatWindow : Window
                 Background = MediaBrushes.Transparent,
                 BorderThickness = new Thickness(0),
                 Cursor = WpfCursors.Hand,
-                Tag = emoji
+                Tag = entry.Unicode,
+                ToolTip = $"{entry.ShortName} ({entry.Codepoint})"
             };
             btn.Click += (s, _) =>
             {
