@@ -13,8 +13,9 @@ import shutil
 from pathlib import Path
 
 # ========== 改这里 ==========
-SRC_DIR = Path(r"C:\Users\Administrator\Downloads\emoji-assets-master\png\64")          # 3~4k 图的源目录
-DST_DIR = Path(r"D:\GitHub\[Workspace]\FeiQ2026\Kotlin\app\src\main\assets\emoji")  # 目标
+SRC_DIR   = Path(r"C:\Users\Administrator\Downloads\emoji-assets-master\png\64")
+DST_DIR1  = Path(r"D:\GitHub\[Workspace]\FeiQ2026\Kotlin\app\src\main\assets\emoji")
+DST_DIR2  = Path(r"D:\GitHub\[Workspace]\FeiQ2026\WPF\src\FeiQ2026\Assets\Emoji")
 # ===========================
 
 # 预设 40 个（和代码里一致）
@@ -58,7 +59,9 @@ def possible_names(emoji: str) -> set[str]:
     return names
 
 def main():
-    DST_DIR.mkdir(parents=True, exist_ok=True)
+    # 创建两个目标目录
+    DST_DIR1.mkdir(parents=True, exist_ok=True)
+    DST_DIR2.mkdir(parents=True, exist_ok=True)
 
     # 先建立 源文件名(小写无扩展名) -> 完整路径 的索引
     index: dict[str, Path] = {}
@@ -92,8 +95,11 @@ def main():
             # 统一命名为 1f600.png 这种，方便以后代码加载
             cps = codepoints(emoji)
             out_name = "-".join(cps) + hit.suffix.lower()
-            dst = DST_DIR / out_name
-            shutil.copy2(hit, dst)
+            
+            # 同时复制到两个目录
+            shutil.copy2(hit, DST_DIR1 / out_name)
+            shutil.copy2(hit, DST_DIR2 / out_name)
+            
             print(f"✅ {emoji}  →  {out_name}  (from {hit.name})")
             found += 1
         else:
@@ -102,6 +108,8 @@ def main():
 
     print("\n" + "=" * 40)
     print(f"成功: {found}/{len(EMOJIS)}")
+    print(f"输出目录1: {DST_DIR1}")
+    print(f"输出目录2: {DST_DIR2}")
     if missing:
         print("缺失:", " ".join(missing))
         print("把缺失的那几个文件名发我，我帮你补匹配规则。")

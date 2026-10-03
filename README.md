@@ -31,6 +31,7 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 - [ ] 传输加密（TLS）
 - [ ] 群组广播消息
 - [ ] macOS/Linux 客户端
+- [ ] 钉钉like 接入 ci 推送
 - [ ] Windows CA证书 或 [微软开发者登记](https://www.microsoft.com/en-us/wdsi/filesubmission)
 
 ---
