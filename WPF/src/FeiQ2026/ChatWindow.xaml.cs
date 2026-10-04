@@ -293,31 +293,126 @@ public partial class ChatWindow : Window
         {
             Title = "选择要发送的文件",
             CheckFileExists = true,
-            Multiselect = false,
+            Multiselect = true,
             Filter = "所有文件|*.*|图片|*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.webp|音乐|*.mp3;*.wav;*.flac;*.aac;*.m4a|视频|*.mp4;*.avi;*.mkv;*.mov;*.wmv"
         };
         if (dlg.ShowDialog() != true) return;
-        var path = dlg.FileName;
-        var name = Path.GetFileName(path);
-        var kind = DetectFileKind(name);
+        await SendFilesAsync(dlg.FileNames);
+    }
+
+    // ── 拖拽发文件 ──────────────────────────────────────────
+
+    private void Window_PreviewDragOver(object sender, System.Windows.DragEventArgs e)
+    {
+        if (HasFileDrop(e.Data))
+        {
+            e.Effects = System.Windows.DragDropEffects.Copy;
+            DropOverlay.Visibility = WpfVisibility.Visible;
+        }
+        else
+        {
+            e.Effects = System.Windows.DragDropEffects.None;
+            DropOverlay.Visibility = WpfVisibility.Collapsed;
+        }
+        e.Handled = true;
+    }
+
+    private async void Window_Drop(object sender, System.Windows.DragEventArgs e)
+    {
+        DropOverlay.Visibility = WpfVisibility.Collapsed;
+        if (_sendFile == null) return;
+        var paths = GetDroppedFilePaths(e.Data);
+        if (paths.Count == 0) return;
+        e.Handled = true;
+        await SendFilesAsync(paths);
+    }
+
+    private void Window_PreviewDragLeave(object sender, System.Windows.DragEventArgs e)
+    {
+        // 只有真正离开窗口客户区时才隐藏（避免移入子控件反复闪烁）
+        var pos = e.GetPosition(this);
+        if (pos.X <= 0 || pos.Y <= 0 || pos.X >= ActualWidth || pos.Y >= ActualHeight)
+            DropOverlay.Visibility = WpfVisibility.Collapsed;
+    }
+
+    private static bool HasFileDrop(System.Windows.IDataObject data)
+    {
+        if (!data.GetDataPresent(System.Windows.DataFormats.FileDrop)) return false;
         try
         {
-            await _sendFile(Peer, path);
-            var note = kind switch
-            {
-                FileKind.Image => $"[图片] {name}",
-                FileKind.Audio => $"[音乐] {name}",
-                FileKind.Video => $"[视频] {name}",
-                _ => $"[文件] {name}"
-            };
-            var storeText = $"{note}|{path}";
-            try { _store.Add(_peerKey, Peer.Name, "out", storeText); } catch { }
-            _messages.Add(MakeFileBubble(path, name, kind, isOutgoing: true));
-            ScrollToEnd();
+            var arr = data.GetData(System.Windows.DataFormats.FileDrop) as string[];
+            return arr != null && arr.Any(p => File.Exists(p));
         }
-        catch (Exception ex)
+        catch { return false; }
+    }
+
+    private static List<string> GetDroppedFilePaths(System.Windows.IDataObject data)
+    {
+        var result = new List<string>();
+        if (!data.GetDataPresent(System.Windows.DataFormats.FileDrop)) return result;
+        try
         {
-            System.Windows.MessageBox.Show(ex.Message, "发文件失败",
+            var arr = data.GetData(System.Windows.DataFormats.FileDrop) as string[];
+            if (arr == null) return result;
+            foreach (var p in arr)
+            {
+                if (File.Exists(p))
+                    result.Add(p);
+                // 目录：展开一层普通文件（不递归，避免拖整个盘）
+                else if (Directory.Exists(p))
+                {
+                    try
+                    {
+                        foreach (var f in Directory.EnumerateFiles(p))
+                            result.Add(f);
+                    }
+                    catch { /* 权限等忽略 */ }
+                }
+            }
+        }
+        catch { /* ignore */ }
+        return result;
+    }
+
+    /// <summary>批量发送本地文件路径（对话框 / 拖拽共用）</summary>
+    private async Task SendFilesAsync(IEnumerable<string> paths)
+    {
+        if (_sendFile == null) return;
+        var list = paths.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (list.Count == 0) return;
+
+        var errors = new List<string>();
+        foreach (var path in list)
+        {
+            var name = Path.GetFileName(path);
+            var kind = DetectFileKind(name);
+            try
+            {
+                await _sendFile(Peer, path);
+                var note = kind switch
+                {
+                    FileKind.Image => $"[图片] {name}",
+                    FileKind.Audio => $"[音乐] {name}",
+                    FileKind.Video => $"[视频] {name}",
+                    _ => $"[文件] {name}"
+                };
+                var storeText = $"{note}|{path}";
+                try { _store.Add(_peerKey, Peer.Name, "out", storeText); } catch { }
+                _messages.Add(MakeFileBubble(path, name, kind, isOutgoing: true));
+                ScrollToEnd();
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{name}: {ex.Message}");
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            var msg = errors.Count == 1
+                ? errors[0]
+                : $"有 {errors.Count} 个文件发送失败：\n" + string.Join("\n", errors.Take(5));
+            System.Windows.MessageBox.Show(msg, "发文件失败",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }

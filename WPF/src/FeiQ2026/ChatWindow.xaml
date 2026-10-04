@@ -7,6 +7,10 @@
         MinWidth="400" MinHeight="360"
         WindowStartupLocation="CenterScreen"
         Background="#F5F5F5"
+        AllowDrop="True"
+        PreviewDragOver="Window_PreviewDragOver"
+        PreviewDragLeave="Window_PreviewDragLeave"
+        Drop="Window_Drop"
         Closing="Window_Closing">
     <Grid>
         <Grid.RowDefinitions>
@@ -40,8 +44,9 @@
             </DockPanel>
         </Border>
 
-        <!-- 消息区 -->
+        <!-- 消息区（可拖入文件） -->
         <Border Grid.Row="1" Background="#EDEDED" Padding="8">
+            <Grid>
             <ScrollViewer x:Name="MsgScroll" VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="MsgList">
                     <ItemsControl.ItemTemplate>
@@ -187,6 +192,13 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
+            <!-- 拖拽提示遮罩 -->
+            <Border x:Name="DropOverlay" Background="#9912B7F5" Visibility="Collapsed"
+                    IsHitTestVisible="False" CornerRadius="4" Margin="4">
+                <TextBlock Text="松开以发送文件" Foreground="White" FontSize="18" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            </Grid>
         </Border>
 
         <!-- 工具条 -->
@@ -196,7 +208,7 @@
                         Click="Emoji_Click" Margin="0,0,6,0"
                         Background="#F0F0F0" BorderBrush="#DDD" Cursor="Hand" ToolTip="表情"/>
                 <Button Content="发送文件" Padding="10,4" Click="SendFile_Click" Margin="0,0,6,0"
-                        Background="#F0F0F0" BorderBrush="#DDD" Cursor="Hand"/>
+                        Background="#F0F0F0" BorderBrush="#DDD" Cursor="Hand" ToolTip="选择文件发送，也可直接拖拽到聊天窗口"/>
             </StackPanel>
         </Border>
 
