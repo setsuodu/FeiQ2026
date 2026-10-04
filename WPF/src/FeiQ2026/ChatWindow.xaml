@@ -115,7 +115,7 @@
                                                     </StackPanel>
                                                 </DockPanel>
                                             </Border>
-                                            <!-- 纯文本（无表情图）：用只读 TextBox 支持选中/复制 -->
+                                            <!-- 纯文本（无表情图）：用只读 TextBox 支持选中/复制，双击全选 -->
                                             <TextBox Text="{Binding Text}" TextWrapping="Wrap" FontSize="13"
                                                      Foreground="{Binding TextBrush}"
                                                      Visibility="{Binding PlainTextVisibility}"
@@ -130,7 +130,8 @@
                                                      VerticalScrollBarVisibility="Disabled"
                                                      HorizontalScrollBarVisibility="Disabled"
                                                      Focusable="True"
-                                                     PreviewMouseLeftButtonUp="Url_Click"/>
+                                                     PreviewMouseLeftButtonUp="Url_Click"
+                                                     MouseDoubleClick="BubbleText_DoubleClick"/>
                                             <!-- 混排：文字 + 表情图片（可右键复制整段） -->
                                             <ItemsControl ItemsSource="{Binding Segments}"
                                                           Visibility="{Binding RichTextVisibility}">
@@ -152,7 +153,8 @@
                                                                      Padding="0"
                                                                      Margin="0"
                                                                      IsTabStop="False"
-                                                                     Focusable="True"/>
+                                                                     Focusable="True"
+                                                                     MouseDoubleClick="BubbleText_DoubleClick"/>
                                                             <Image Source="{Binding Image}" Width="22" Height="22"
                                                                    Margin="1,0" VerticalAlignment="Center"
                                                                    Visibility="{Binding ImageVisibility}"/>

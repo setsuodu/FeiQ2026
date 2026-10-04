@@ -10,7 +10,7 @@ namespace FeiQ2026.Services;
 
 public sealed class Peer
 {
-    public required string Name { get; init; }
+    public required string Name { get; set; }
     public required string HostName { get; init; }
     public required IPAddress Ip { get; init; }
     public DateTime LastSeen { get; set; } = DateTime.UtcNow;
@@ -505,29 +505,50 @@ public sealed class IpMsgService : IAsyncDisposable
 
     private void HandlePresence(IpMsgPacket pkt, IPAddress ip, bool isEntry)
     {
-        // WS 模式 remote 都是 Loopback，用 UserName 当 key
-        var key = _isWebSocket ? $"ws:{pkt.UserName}@{pkt.HostName}" : ip.ToString();
+        // WS 模式 remote 都是 Loopback，用稳定 HostName 当 key（改名不产生重复）
+        // 局域网仍用 IP
+        var hostPart = string.IsNullOrWhiteSpace(pkt.HostName) ? pkt.UserName : pkt.HostName;
+        var key = _isWebSocket ? $"ws:{hostPart}" : ip.ToString();
         Peer? peer;
 
         lock (_peersLock)
         {
+            // 清理历史脏 key：旧版用 ws:UserName@HostName，改名后会残留
+            if (_isWebSocket && !string.IsNullOrEmpty(pkt.HostName))
+            {
+                var stale = _peers.Keys
+                    .Where(k => k.StartsWith("ws:", StringComparison.Ordinal)
+                                && k.Contains('@')
+                                && k.EndsWith("@" + pkt.HostName, StringComparison.OrdinalIgnoreCase)
+                                && k != key)
+                    .ToList();
+                foreach (var sk in stale)
+                    _peers.Remove(sk);
+            }
+
             if (isEntry)
             {
                 var name = string.IsNullOrWhiteSpace(pkt.Extra) ? pkt.UserName : pkt.Extra;
                 if (_peers.TryGetValue(key, out peer))
                 {
                     peer.LastSeen = DateTime.UtcNow;
-                    return;
+                    // 改名：更新显示名并通知 UI（避免列表残留旧名条目）
+                    if (!string.Equals(peer.Name, name, StringComparison.Ordinal))
+                        peer.Name = name;
+                    else
+                        return; // 无变化，不重复触发 PeerOnline
                 }
-
-                peer = new Peer
+                else
                 {
-                    Name = name,
-                    HostName = pkt.HostName,
-                    Ip = ip,
-                    LastSeen = DateTime.UtcNow
-                };
-                _peers[key] = peer;
+                    peer = new Peer
+                    {
+                        Name = name,
+                        HostName = pkt.HostName,
+                        Ip = ip,
+                        LastSeen = DateTime.UtcNow
+                    };
+                    _peers[key] = peer;
+                }
             }
             else
             {
@@ -571,11 +592,23 @@ public sealed class IpMsgService : IAsyncDisposable
 
     private Peer EnsurePeer(IpMsgPacket pkt, IPAddress ip)
     {
-        var key = _isWebSocket ? $"ws:{pkt.UserName}@{pkt.HostName}" : ip.ToString();
+        // 与 HandlePresence 一致：WS 用 HostName 稳定身份，改名不换 key
+        var key = _isWebSocket
+            ? $"ws:{(string.IsNullOrWhiteSpace(pkt.HostName) ? pkt.UserName : pkt.HostName)}"
+            : ip.ToString();
         lock (_peersLock)
         {
             if (_peers.TryGetValue(key, out var peer))
+            {
+                // 消息包也可能带新名字，同步更新
+                var name = string.IsNullOrWhiteSpace(pkt.UserName) ? peer.Name : pkt.UserName;
+                if (!string.Equals(peer.Name, name, StringComparison.Ordinal))
+                {
+                    peer.Name = name;
+                    PeerOnline?.Invoke(peer); // 让 UI UpsertFriend 刷新显示名
+                }
                 return peer;
+            }
 
             peer = new Peer
             {

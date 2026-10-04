@@ -383,6 +383,16 @@ public partial class ChatWindow : Window
         }
     }
 
+    /// <summary>气泡文字双击全选，方便一键复制</summary>
+    private void BubbleText_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is System.Windows.Controls.TextBox tb)
+        {
+            tb.SelectAll();
+            e.Handled = true;
+        }
+    }
+
     private void OpenFolder_Click(object sender, RoutedEventArgs e)
     {
         if (sender is WpfMenuItem mi && mi.Parent is WpfContextMenu cm

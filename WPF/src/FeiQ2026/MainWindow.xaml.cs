@@ -292,24 +292,35 @@ public partial class MainWindow : Window
         });
     }
 
-    /// <summary>合入会话列表：已有则更新，没有则插到最前（按显示名/host 逻辑身份去重）</summary>
+    /// <summary>合入会话列表：已有则更新，没有则插到最前（按 host/显示名 逻辑身份去重）</summary>
     private void UpsertFriend(Peer peer, bool isOnline)
     {
         var key = PeerKey(peer);
         if (key == "unknown") return;
         var id = ChatStore.IdentityOf(key, peer.Name);
-        // 也用显示名直接比一次，防止 host 脏后缀导致 identity 不一致
         var nameId = (peer.Name ?? "").Trim().ToLowerInvariant();
+        var hostId = (peer.HostName ?? "").Trim().ToLowerInvariant();
         var exist = _friends.FirstOrDefault(f =>
         {
+            // 1) 同一规范身份
             var fid = ChatStore.IdentityOf(PeerKey(f.Peer), f.Peer.Name);
             if (fid == id) return true;
+            // 2) 同一显示名
             var fn = (f.Peer.Name ?? "").Trim().ToLowerInvariant();
-            return !string.IsNullOrEmpty(nameId) && nameId == fn;
+            if (!string.IsNullOrEmpty(nameId) && nameId == fn) return true;
+            // 3) 同一 HostName（改名后仍是同一台机器，合并旧条目）
+            var fh = (f.Peer.HostName ?? "").Trim().ToLowerInvariant();
+            if (!string.IsNullOrEmpty(hostId) && hostId == fh) return true;
+            // 4) 对方 HostName 出现在我方 Name 里的常见「Name(Host)」脏数据
+            if (!string.IsNullOrEmpty(hostId) && fn.Contains(hostId, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!string.IsNullOrEmpty(fh) && nameId.Contains(fh, StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
         });
         if (exist != null)
         {
-            // 在线包优先覆盖（带真实 HostName/头像）
+            // 在线包优先覆盖（带真实 HostName/新显示名）
             if (isOnline || string.IsNullOrWhiteSpace(exist.Peer.HostName))
                 exist.UpdatePeer(peer);
             exist.IsOnline = isOnline || exist.IsOnline;
