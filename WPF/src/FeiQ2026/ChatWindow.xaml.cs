@@ -130,6 +130,129 @@ public partial class ChatWindow : Window
         ScrollToEnd();
     }
 
+    /// <summary>
+    /// 开始接收：先在聊天里放一个「传输中」的文件气泡（进度条在气泡内）。
+    /// </summary>
+    public ChatBubble BeginReceiveFile(string fileName, long totalBytes)
+    {
+        var kind = DetectFileKind(fileName);
+        var bubble = MakeFileBubble(null, fileName, kind, isOutgoing: false);
+        bubble.SetTransferring(true, totalBytes, isSend: false);
+        _messages.Add(bubble);
+        ScrollToEnd();
+        return bubble;
+    }
+
+    /// <summary>
+    /// 普通文件：气泡内「接收 / 拒绝」，不弹 MessageBox。
+    /// </summary>
+    public ChatBubble ShowFileOffer(IncomingFileOffer offer, Func<IncomingFileOffer, Task> onAccept)
+    {
+        var fileName = offer.Info.FileName;
+        var kind = DetectFileKind(fileName);
+        var bubble = MakeFileBubble(null, fileName, kind, isOutgoing: false);
+        bubble.SetPendingOffer(offer, offer.Info.Size, onAccept);
+        _messages.Add(bubble);
+        ScrollToEnd();
+        return bubble;
+    }
+
+    private async void AcceptOffer_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not WpfButton btn || btn.Tag is not ChatBubble bubble) return;
+        if (bubble.PendingOffer is null || bubble.PendingAccept is null) return;
+
+        var offer = bubble.PendingOffer;
+        var accept = bubble.PendingAccept;
+        bubble.ClearPendingOffer(startTransfer: true);
+
+        try
+        {
+            await accept(offer);
+        }
+        catch (Exception ex)
+        {
+            bubble.FinishTransfer(false, ex.Message);
+        }
+    }
+
+    private void RejectOffer_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not WpfButton btn || btn.Tag is not ChatBubble bubble) return;
+        bubble.RejectOffer();
+    }
+
+    /// <summary>
+    /// 按文件名更新对应气泡内的进度条（多文件互不干扰，不会来回闪）。
+    /// </summary>
+    public void UpdateTransferProgress(string fileName, long received, long total, bool done, string? error,
+        string? savedPath = null, bool fromLocalCache = false)
+    {
+        // 只更新本窗口里已有的同名文件气泡（发送时已加、接收时 BeginReceive 已加）
+        // 避免多窗口时在无关会话里乱建气泡
+        ChatBubble? bubble = null;
+        for (int i = _messages.Count - 1; i >= 0; i--)
+        {
+            var m = _messages[i];
+            if (m.IsSystem) continue;
+            if (!string.Equals(m.FileName, fileName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (m.Kind is FileKind.File or FileKind.Image or FileKind.Audio or FileKind.Video)
+            {
+                // 优先取仍在传输中的；否则取最近一条
+                if (m.IsTransferring)
+                {
+                    bubble = m;
+                    break;
+                }
+                bubble ??= m;
+            }
+        }
+
+        if (bubble == null)
+            return; // 本会话没有该文件气泡，忽略（属于别的聊天窗口）
+
+        if (error != null)
+        {
+            bubble.FinishTransfer(success: false, error);
+            return;
+        }
+
+        if (done)
+        {
+            if (!string.IsNullOrEmpty(savedPath))
+            {
+                // 接收完成：补全路径 + 写库（不重复加气泡）
+                bubble.CompleteReceive(savedPath, fromLocalCache);
+                var kind = DetectFileKind(fileName);
+                var note = kind switch
+                {
+                    FileKind.Image => $"[图片] {fileName}",
+                    FileKind.Audio => $"[音乐] {fileName}",
+                    FileKind.Video => $"[视频] {fileName}",
+                    _ => $"[文件] {fileName}"
+                };
+                try { _store.Add(_peerKey, Peer.Name, "in", $"{note}|{savedPath}"); } catch { }
+            }
+            else
+            {
+                bubble.FinishTransfer(success: true, null);
+            }
+            return;
+        }
+
+        bubble.UpdateProgress(received, total > 0 ? total : bubble.TransferTotal);
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):0.##} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):0.##} GB";
+    }
+
     public void AppendReceivedFile(string filePath, string? fileName = null)
     {
         fileName ??= Path.GetFileName(filePath);
@@ -388,6 +511,14 @@ public partial class ChatWindow : Window
             var kind = DetectFileKind(name);
             try
             {
+                // 先放气泡并标「发送中」，进度在气泡内更新，多文件互不抢
+                var bubble = MakeFileBubble(path, name, kind, isOutgoing: true);
+                long size = 0;
+                try { size = new FileInfo(path).Length; } catch { }
+                bubble.SetTransferring(true, size, isSend: true);
+                _messages.Add(bubble);
+                ScrollToEnd();
+
                 await _sendFile(Peer, path);
                 var note = kind switch
                 {
@@ -398,7 +529,6 @@ public partial class ChatWindow : Window
                 };
                 var storeText = $"{note}|{path}";
                 try { _store.Add(_peerKey, Peer.Name, "out", storeText); } catch { }
-                _messages.Add(MakeFileBubble(path, name, kind, isOutgoing: true));
                 ScrollToEnd();
             }
             catch (Exception ex)
@@ -734,8 +864,12 @@ public sealed class EmojiSegment
     public WpfVisibility ImageVisibility => Image != null ? WpfVisibility.Visible : WpfVisibility.Collapsed;
 }
 
-public sealed class ChatBubble
+public sealed class ChatBubble : System.ComponentModel.INotifyPropertyChanged
 {
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+    private void Notify(string name) =>
+        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+
     public string Text { get; init; } = "";
     public string Time { get; init; } = "";
     public WpfHorizontalAlignment Align { get; init; }
@@ -743,22 +877,225 @@ public sealed class ChatBubble
     public MediaBrush TextBrush { get; init; } = MediaBrushes.Black;
 
     public FileKind Kind { get; init; } = FileKind.Text;
-    public string? MediaPath { get; init; }
+    public string? MediaPath { get; set; }
     public string FileName { get; init; } = "";
-    public string TypeIcon { get; init; } = "";
-    public string TypeLabel { get; init; } = "";
-    public ImageSource? ImageSource { get; init; }
+    public string TypeIcon { get; set; } = "";
+    public string TypeLabel { get; set; } = "";
+    public ImageSource? ImageSource { get; set; }
 
     /// <summary>富文本片段（有表情图时用）</summary>
     public List<EmojiSegment> Segments { get; init; } = new();
 
     public bool IsSystem { get; init; }
     public bool IsOutgoing { get; init; }
-    public bool IsFileMissing { get; init; }
+    public bool IsFileMissing { get; set; }
     public string PeerAvatarLetter { get; init; } = "?";
     public string SelfAvatarLetter { get; init; } = "我";
     public ImageSource? SelfAvatarImage { get; init; }
     public ImageSource? PeerAvatarImage { get; init; }
+
+    // —— 气泡内传输进度（类音乐播放器 slider）——
+    private bool _isTransferring;
+    private double _transferPercent;
+    private string _transferStatusText = "";
+    private long _transferTotal;
+    private bool _isSendTransfer;
+
+    // —— 普通文件待确认（气泡内接收/拒绝）——
+    private bool _isPendingOffer;
+    public IncomingFileOffer? PendingOffer { get; private set; }
+    public Func<IncomingFileOffer, Task>? PendingAccept { get; private set; }
+
+    public bool IsPendingOffer
+    {
+        get => _isPendingOffer;
+        private set
+        {
+            if (_isPendingOffer == value) return;
+            _isPendingOffer = value;
+            Notify(nameof(IsPendingOffer));
+            Notify(nameof(OfferActionsVisibility));
+            Notify(nameof(FileCardVisibility));
+        }
+    }
+
+    public WpfVisibility OfferActionsVisibility =>
+        IsPendingOffer ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+
+    public void SetPendingOffer(IncomingFileOffer offer, long size, Func<IncomingFileOffer, Task> onAccept)
+    {
+        PendingOffer = offer;
+        PendingAccept = onAccept;
+        IsPendingOffer = true;
+        TypeLabel = size > 0 ? $"待接收 · {FormatSize(size)}" : "待接收";
+        Notify(nameof(TypeLabel));
+    }
+
+    public void ClearPendingOffer(bool startTransfer)
+    {
+        var size = PendingOffer?.Info.Size ?? _transferTotal;
+        PendingOffer = null;
+        PendingAccept = null;
+        IsPendingOffer = false;
+        if (startTransfer)
+            SetTransferring(true, size, isSend: false);
+    }
+
+    public void RejectOffer()
+    {
+        PendingOffer = null;
+        PendingAccept = null;
+        IsPendingOffer = false;
+        TypeIcon = "🚫";
+        TypeLabel = "已拒绝";
+        Notify(nameof(TypeIcon));
+        Notify(nameof(TypeLabel));
+    }
+
+    public bool IsTransferring
+    {
+        get => _isTransferring;
+        private set
+        {
+            if (_isTransferring == value) return;
+            _isTransferring = value;
+            Notify(nameof(IsTransferring));
+            Notify(nameof(TransferProgressVisibility));
+            Notify(nameof(OpenFolderVisibility));
+            Notify(nameof(ImageVisibility));
+            Notify(nameof(FileCardVisibility));
+        }
+    }
+
+    public double TransferPercent
+    {
+        get => _transferPercent;
+        private set
+        {
+            if (Math.Abs(_transferPercent - value) < 0.05) return;
+            _transferPercent = value;
+            Notify(nameof(TransferPercent));
+        }
+    }
+
+    public string TransferStatusText
+    {
+        get => _transferStatusText;
+        private set
+        {
+            if (_transferStatusText == value) return;
+            _transferStatusText = value;
+            Notify(nameof(TransferStatusText));
+        }
+    }
+
+    public long TransferTotal => _transferTotal;
+
+    public WpfVisibility TransferProgressVisibility =>
+        IsTransferring ? WpfVisibility.Visible : WpfVisibility.Collapsed;
+
+    public void SetTransferring(bool transferring, long totalBytes, bool isSend)
+    {
+        _isSendTransfer = isSend;
+        _transferTotal = totalBytes;
+        IsTransferring = transferring;
+        if (transferring)
+        {
+            TransferPercent = 0;
+            TransferStatusText = isSend
+                ? (totalBytes > 0 ? $"等待发送 · {FormatSize(totalBytes)}" : "等待发送…")
+                : (totalBytes > 0 ? $"准备接收 · {FormatSize(totalBytes)}" : "准备接收…");
+        }
+    }
+
+    public void UpdateProgress(long received, long total)
+    {
+        if (total > 0) _transferTotal = total;
+        var t = _transferTotal > 0 ? _transferTotal : 1;
+        var pct = Math.Clamp(received * 100.0 / t, 0, 100);
+        IsTransferring = true;
+        TransferPercent = pct;
+        var verb = _isSendTransfer ? "发送中" : "接收中";
+        TransferStatusText = $"{verb} {pct:0}%  {FormatSize(received)}/{FormatSize(_transferTotal)}";
+    }
+
+    public void FinishTransfer(bool success, string? error)
+    {
+        if (!success)
+        {
+            TransferPercent = 0;
+            TransferStatusText = string.IsNullOrEmpty(error) ? "传输失败" : $"失败：{error}";
+            TypeLabel = "传输失败";
+            TypeIcon = "⚠️";
+            Notify(nameof(TypeLabel));
+            Notify(nameof(TypeIcon));
+            // 短暂保留失败状态再隐藏进度条
+            IsTransferring = false;
+            return;
+        }
+        TransferPercent = 100;
+        TransferStatusText = _isSendTransfer ? "发送完成" : "接收完成";
+        IsTransferring = false;
+    }
+
+    /// <summary>接收完成：写入本地路径，图片则加载缩略图</summary>
+    public void CompleteReceive(string savedPath, bool fromLocalCache = false)
+    {
+        MediaPath = savedPath;
+        IsFileMissing = !File.Exists(savedPath);
+        if (!IsFileMissing && Kind == FileKind.Image)
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 480;
+                bmp.UriSource = new Uri(savedPath, UriKind.Absolute);
+                bmp.EndInit();
+                bmp.Freeze();
+                ImageSource = bmp;
+                Notify(nameof(ImageSource));
+            }
+            catch { /* keep card */ }
+        }
+        var (icon, label) = Kind switch
+        {
+            FileKind.Image => ("🖼️", "图片"),
+            FileKind.Audio => ("🎵", "音乐"),
+            FileKind.Video => ("🎬", "视频"),
+            _ => ("📄", "文件")
+        };
+        if (IsFileMissing) { icon = "⚠️"; label = "文件已失效"; }
+        else if (fromLocalCache) { label = "本地已有 · 秒收"; }
+        TypeIcon = icon;
+        TypeLabel = label;
+        Notify(nameof(TypeIcon));
+        Notify(nameof(TypeLabel));
+        Notify(nameof(MediaPath));
+        Notify(nameof(IsFileMissing));
+        Notify(nameof(ImageVisibility));
+        Notify(nameof(FileCardVisibility));
+        Notify(nameof(OpenFolderVisibility));
+        if (fromLocalCache)
+        {
+            TransferPercent = 100;
+            TransferStatusText = "本地已有 · 秒收";
+            IsTransferring = false;
+        }
+        else
+        {
+            FinishTransfer(true, null);
+        }
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):0.##} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):0.##} GB";
+    }
 
     public MediaBrush PeerAvatarBg { get; } = new SolidColorBrush(MediaColor.FromRgb(0x12, 0xB7, 0xF5));
     public MediaBrush SelfAvatarBg { get; } = new SolidColorBrush(MediaColor.FromRgb(0x07, 0xC1, 0x60));
@@ -782,7 +1119,7 @@ public sealed class ChatBubble
         SelfAvatarImage == null ? WpfVisibility.Visible : WpfVisibility.Collapsed;
 
     public WpfVisibility ImageVisibility =>
-        !IsFileMissing && Kind == FileKind.Image && ImageSource != null
+        !IsFileMissing && !IsTransferring && Kind == FileKind.Image && ImageSource != null
             ? WpfVisibility.Visible
             : WpfVisibility.Collapsed;
 
@@ -790,7 +1127,7 @@ public sealed class ChatBubble
     {
         get
         {
-            if (IsFileMissing) return WpfVisibility.Visible;
+            if (IsFileMissing || IsTransferring || IsPendingOffer) return WpfVisibility.Visible;
             if (Kind == FileKind.Audio || Kind == FileKind.Video || Kind == FileKind.File)
                 return WpfVisibility.Visible;
             if (Kind == FileKind.Image && ImageSource == null)
@@ -820,7 +1157,7 @@ public sealed class ChatBubble
         Kind == FileKind.Url ? WpfCursors.Hand : WpfCursors.Arrow;
 
     public WpfVisibility OpenFolderVisibility =>
-        !IsFileMissing && !string.IsNullOrEmpty(MediaPath) && File.Exists(MediaPath) && Kind != FileKind.Url
+        !IsTransferring && !IsFileMissing && !string.IsNullOrEmpty(MediaPath) && File.Exists(MediaPath) && Kind != FileKind.Url
             ? WpfVisibility.Visible
             : WpfVisibility.Collapsed;
 }

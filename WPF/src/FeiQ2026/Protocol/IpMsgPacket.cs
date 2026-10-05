@@ -78,10 +78,15 @@ public sealed class FileAttachInfo
     public long Size { get; init; }
     public long Mtime { get; init; }
     public int FileAttr { get; init; } = IpMsgCommands.FileRegular;
+    /// <summary>
+    /// 可选：内容 SHA256（小写 hex）。FeiQ2026 扩展字段，飞秋2013 忽略第 6 段。
+    /// 接收端用此做本地秒收，服务器不存文件。
+    /// </summary>
+    public string? ContentHash { get; init; }
 
     /// <summary>
-    /// 格式：fileID:filename:size:mtime:fileattr （size/mtime/attr 为 hex）
-    /// 多文件用 \a 分隔。
+    /// 格式：fileID:filename:size:mtime:fileattr[:sha256]
+    /// size/mtime/attr 为 hex；多文件用 \a 分隔。
     /// </summary>
     public static List<FileAttachInfo> ParseList(string fileExtra)
     {
@@ -102,6 +107,10 @@ public sealed class FileAttachInfo
             long.TryParse(parts[2], System.Globalization.NumberStyles.HexNumber, null, out var size);
             long.TryParse(parts[3], System.Globalization.NumberStyles.HexNumber, null, out var mtime);
             int.TryParse(parts[4], System.Globalization.NumberStyles.HexNumber, null, out var attr);
+            // 第 6 段：FeiQ2026 SHA256（64 hex），老客户端无此字段
+            string? hash = null;
+            if (parts.Length >= 6 && parts[5].Length == 64)
+                hash = parts[5].ToLowerInvariant();
 
             list.Add(new FileAttachInfo
             {
@@ -109,7 +118,8 @@ public sealed class FileAttachInfo
                 FileName = name,
                 Size = size,
                 Mtime = mtime,
-                FileAttr = attr == 0 ? IpMsgCommands.FileRegular : attr
+                FileAttr = attr == 0 ? IpMsgCommands.FileRegular : attr,
+                ContentHash = hash
             });
         }
         return list;
@@ -118,6 +128,9 @@ public sealed class FileAttachInfo
     public string ToExtraString()
     {
         var safeName = FileName.Replace(":", "::");
-        return $"{FileId:x}:{safeName}:{Size:x}:{Mtime:x}:{FileAttr:x}";
+        var base_ = $"{FileId:x}:{safeName}:{Size:x}:{Mtime:x}:{FileAttr:x}";
+        if (!string.IsNullOrEmpty(ContentHash) && ContentHash.Length == 64)
+            return $"{base_}:{ContentHash.ToLowerInvariant()}";
+        return base_;
     }
 }

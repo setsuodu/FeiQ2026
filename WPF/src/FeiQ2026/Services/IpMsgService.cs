@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using FeiQ2026.Protocol;
 using FeiQ2026.Transport;
@@ -40,6 +41,8 @@ public sealed class FileTransferProgress
     public bool Done { get; init; }
     public string? SavedPath { get; init; }
     public string? Error { get; init; }
+    /// <summary>接收端本地 hash 命中，未走网络传输</summary>
+    public bool FromLocalCache { get; init; }
 }
 
 /// <summary>
@@ -160,7 +163,8 @@ public sealed class IpMsgService : IAsyncDisposable
         // UDP 模式启动 TCP 文件服务
         if (!_isWebSocket && _transport.LocalPort > 0)
         {
-            _tcpServer = new TcpFileServer(_transport.LocalPort, _encoding, LookupShared);
+            _tcpServer = new TcpFileServer(_transport.LocalPort, _encoding, LookupShared,
+                p => FileProgress?.Invoke(p));
             await _tcpServer.StartAsync(ct).ConfigureAwait(false);
         }
 
@@ -200,6 +204,7 @@ public sealed class IpMsgService : IAsyncDisposable
 
     /// <summary>
     /// 发送文件。UDP：通知 + 等待对方 TCP 拉取；WS：通知后主动推送分片。
+    /// 附带内容 SHA256，供接收端本地秒收（服务器不存文件）。
     /// </summary>
     public async Task SendFileAsync(IPAddress targetIp, string filePath, string? message = null,
         CancellationToken ct = default)
@@ -212,13 +217,17 @@ public sealed class IpMsgService : IAsyncDisposable
         var packetNo = Interlocked.Increment(ref _packetNo);
         var mtime = new DateTimeOffset(fi.LastWriteTimeUtc).ToUnixTimeSeconds();
 
+        // 本地算 SHA256，写入附件扩展字段（飞秋2013 会忽略第 6 段）
+        var hash = await ComputeSha256HexAsync(fi.FullName, ct).ConfigureAwait(false);
+
         var attach = new FileAttachInfo
         {
             FileId = fileId,
             FileName = fi.Name,
             Size = fi.Length,
             Mtime = mtime,
-            FileAttr = IpMsgCommands.FileRegular
+            FileAttr = IpMsgCommands.FileRegular,
+            ContentHash = hash
         };
 
         var shared = new SharedFile
@@ -290,11 +299,29 @@ public sealed class IpMsgService : IAsyncDisposable
 
     /// <summary>
     /// 接受并下载对方发来的文件（UDP 走 TCP；WS 等分片自动写盘，此方法仅触发请求）。
+    /// 若对方带了 ContentHash 且本地下载目录已有相同内容 → 秒收，不走网络。
     /// </summary>
     public async Task AcceptFileAsync(IncomingFileOffer offer, string? savePath = null,
         CancellationToken ct = default)
     {
         Directory.CreateDirectory(DownloadDir);
+
+        // —— 接收端本地秒收：按 SHA256（或 文件名+大小）在 DownloadDir 查重 ——
+        var localHit = await TryFindLocalDuplicateAsync(offer.Info, ct).ConfigureAwait(false);
+        if (localHit != null)
+        {
+            FileProgress?.Invoke(new FileTransferProgress
+            {
+                FileName = offer.Info.FileName,
+                Received = offer.Info.Size,
+                Total = offer.Info.Size,
+                Done = true,
+                SavedPath = localHit,
+                FromLocalCache = true
+            });
+            return;
+        }
+
         savePath ??= Path.Combine(DownloadDir, SanitizeFileName(offer.Info.FileName));
         savePath = EnsureUniquePath(savePath);
 
@@ -683,6 +710,73 @@ public sealed class IpMsgService : IAsyncDisposable
             if (!File.Exists(candidate)) return candidate;
         }
         return Path.Combine(dir, $"{name}_{Guid.NewGuid():N}{ext}");
+    }
+
+    /// <summary>计算文件 SHA256（小写 hex）。大文件流式计算，不整文件读入内存。</summary>
+    public static async Task<string> ComputeSha256HexAsync(string path, CancellationToken ct = default)
+    {
+        await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 1024 * 1024, useAsync: true);
+        var hash = await SHA256.HashDataAsync(fs, ct).ConfigureAwait(false);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// 在 DownloadDir 内查找内容相同的本地文件（秒收）。
+    /// 优先：对方带来的 SHA256；否则：同名且同大小（弱校验，仅作兼容老客户端）。
+    /// </summary>
+    private async Task<string?> TryFindLocalDuplicateAsync(FileAttachInfo info, CancellationToken ct)
+    {
+        if (!Directory.Exists(DownloadDir)) return null;
+
+        // 候选：同大小的文件（先 size 过滤，再算 hash，避免全盘扫）
+        IEnumerable<string> candidates;
+        try
+        {
+            candidates = Directory.EnumerateFiles(DownloadDir, "*", SearchOption.TopDirectoryOnly)
+                .Where(p =>
+                {
+                    try { return new FileInfo(p).Length == info.Size; }
+                    catch { return false; }
+                });
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrEmpty(info.ContentHash) && info.ContentHash.Length == 64)
+        {
+            foreach (var path in candidates)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var h = await ComputeSha256HexAsync(path, ct).ConfigureAwait(false);
+                    if (string.Equals(h, info.ContentHash, StringComparison.OrdinalIgnoreCase))
+                        return path;
+                }
+                catch
+                {
+                    // 单个文件读失败继续
+                }
+            }
+            return null;
+        }
+
+        // 无 hash（飞秋2013 等）：同名 + 同大小 视为可能相同
+        var sameName = Path.Combine(DownloadDir, SanitizeFileName(info.FileName));
+        if (File.Exists(sameName))
+        {
+            try
+            {
+                if (new FileInfo(sameName).Length == info.Size)
+                    return sameName;
+            }
+            catch { /* ignore */ }
+        }
+
+        return null;
     }
 
     public async ValueTask DisposeAsync()

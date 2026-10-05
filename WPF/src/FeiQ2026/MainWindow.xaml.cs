@@ -25,6 +25,8 @@ public partial class MainWindow : Window
     private bool _forceClose;
     /// <summary>当前在线 peer_key 集合（协议实时）</summary>
     private readonly HashSet<string> _onlineKeys = new(StringComparer.Ordinal);
+    /// <summary>文件进度 UI 节流（按文件名分别节流）</summary>
+    private readonly Dictionary<string, DateTime> _lastProgressUiByFile = new(StringComparer.OrdinalIgnoreCase);
 
     public MainWindow()
     {
@@ -478,35 +480,28 @@ public partial class MainWindow : Window
 
     private void OnFileOffered(IncomingFileOffer offer)
     {
-        Dispatcher.Invoke(async () =>
+        Dispatcher.Invoke(() =>
         {
             if (_service == null) return;
 
             var fileName = offer.Info.FileName;
             var autoMedia = IsAutoReceiveMedia(fileName);
+            var chat = OpenChat(offer.From);
+            if (chat == null) return;
 
             if (autoMedia)
             {
-                // 媒体文件：静默自动接收，打开聊天窗口（不写“正在接收”）
-                OpenChat(offer.From);
-                await _service.AcceptFileAsync(offer);
+                // 媒体：自动接收，气泡内显示进度
+                chat.BeginReceiveFile(fileName, offer.Info.Size);
+                _ = _service.AcceptFileAsync(offer);
                 return;
             }
 
-            // 普通文件：弹出确认
-            var sizeStr = FormatSize(offer.Info.Size);
-            var result = System.Windows.MessageBox.Show(
-                $"收到来自 {offer.From.Name} 的文件：\n\n{fileName}\n大小：{sizeStr}\n\n是否接收？",
-                "FeiQ 2026 文件传输",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Yes)
+            // 普通文件：气泡内「接收 / 拒绝」，不弹框
+            chat.ShowFileOffer(offer, async o =>
             {
-                var chat = OpenChat(offer.From);
-                chat?.AppendSystem($"正在接收文件 {fileName} ...");
-                await _service.AcceptFileAsync(offer);
-            }
+                await _service.AcceptFileAsync(o);
+            });
         });
     }
 
@@ -514,48 +509,24 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            var isMedia = IsAutoReceiveMedia(p.FileName);
+            // 按文件名节流：进行中 ≥120ms 一次，完成/错误立即刷新
+            var now = DateTime.UtcNow;
+            var key = p.FileName ?? "";
+            _lastProgressUiByFile.TryGetValue(key, out var last);
+            var shouldUi = p.Done || p.Error != null
+                           || (now - last).TotalMilliseconds >= 120;
+            if (!shouldUi) return;
+            _lastProgressUiByFile[key] = now;
 
-            if (p.Error != null)
+            // 只更新对应文件气泡内的进度条（多文件互不抢、不闪）
+            foreach (var chat in _chats.Values.Where(x => x.IsLoaded))
             {
-                // 错误仍提示（媒体/普通都提示）
-                var msg = $"文件 {p.FileName} 失败：{p.Error}";
-                foreach (var chat in _chats.Values.Where(x => x.IsLoaded))
-                    chat.AppendSystem(msg);
-                return;
+                chat.UpdateTransferProgress(p.FileName, p.Received, p.Total, p.Done, p.Error,
+                    p.SavedPath, p.FromLocalCache);
             }
 
-            if (!p.Done) return;
-
-            if (p.SavedPath != null)
-            {
-                // 接收完成
-                if (isMedia)
-                {
-                    // 媒体：只展示富媒体气泡，不写“已保存”等系统消息
-                    foreach (var chat in _chats.Values.Where(x => x.IsLoaded))
-                        chat.AppendReceivedFile(p.SavedPath, p.FileName);
-                }
-                else
-                {
-                    // 普通文件：系统提示 + 富媒体气泡（若能识别）
-                    foreach (var chat in _chats.Values.Where(x => x.IsLoaded))
-                    {
-                        chat.AppendSystem($"文件已保存：{p.SavedPath}");
-                        chat.AppendReceivedFile(p.SavedPath, p.FileName);
-                    }
-                }
-            }
-            else
-            {
-                // 发送完成：媒体不刷系统消息，普通文件才提示
-                if (!isMedia)
-                {
-                    var msg = $"文件发送完成：{p.FileName}";
-                    foreach (var chat in _chats.Values.Where(x => x.IsLoaded))
-                        chat.AppendSystem(msg);
-                }
-            }
+            if (p.Done || p.Error != null)
+                _lastProgressUiByFile.Remove(key);
         });
     }
 

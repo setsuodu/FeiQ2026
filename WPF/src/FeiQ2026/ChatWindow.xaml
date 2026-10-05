@@ -108,17 +108,43 @@
                                                     Background="#F8F8F8" BorderBrush="#E0E0E0" BorderThickness="1"
                                                     CornerRadius="6" Padding="10,8" Margin="0,0,0,4"
                                                     Cursor="Hand" MouseLeftButtonUp="Media_Click">
-                                                <DockPanel>
-                                                    <TextBlock Text="{Binding TypeIcon}" FontSize="28"
-                                                               VerticalAlignment="Center" Margin="0,0,10,0"
-                                                               DockPanel.Dock="Left"/>
-                                                    <StackPanel VerticalAlignment="Center">
-                                                        <TextBlock Text="{Binding FileName}" FontSize="13" FontWeight="SemiBold"
-                                                                   TextTrimming="CharacterEllipsis" MaxWidth="200"/>
-                                                        <TextBlock Text="{Binding TypeLabel}" FontSize="11" Foreground="#888"
-                                                                   Margin="0,2,0,0"/>
+                                                <StackPanel MinWidth="180" MaxWidth="240">
+                                                    <DockPanel>
+                                                        <TextBlock Text="{Binding TypeIcon}" FontSize="28"
+                                                                   VerticalAlignment="Center" Margin="0,0,10,0"
+                                                                   DockPanel.Dock="Left"/>
+                                                        <StackPanel VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding FileName}" FontSize="13" FontWeight="SemiBold"
+                                                                       TextTrimming="CharacterEllipsis" MaxWidth="180"/>
+                                                            <TextBlock Text="{Binding TypeLabel}" FontSize="11" Foreground="#888"
+                                                                       Margin="0,2,0,0"/>
+                                                        </StackPanel>
+                                                    </DockPanel>
+                                                    <!-- 类音乐播放器：进度条嵌在文件气泡内，多文件互不抢进度 -->
+                                                    <StackPanel Visibility="{Binding TransferProgressVisibility}" Margin="0,8,0,0">
+                                                        <ProgressBar Height="4" Minimum="0" Maximum="100"
+                                                                     Value="{Binding TransferPercent, Mode=OneWay}"
+                                                                     Foreground="#12B7F5" Background="#DDDDDD"
+                                                                     BorderThickness="0"/>
+                                                        <TextBlock Text="{Binding TransferStatusText, Mode=OneWay}" FontSize="10"
+                                                                   Foreground="#12B7F5" Margin="0,3,0,0"/>
                                                     </StackPanel>
-                                                </DockPanel>
+                                                    <!-- 普通文件：气泡内接收 / 拒绝（不弹框） -->
+                                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0"
+                                                                Visibility="{Binding OfferActionsVisibility}"
+                                                                HorizontalAlignment="Right">
+                                                        <Button Content="拒绝" Padding="12,4" Margin="0,0,8,0"
+                                                                FontSize="12" Cursor="Hand"
+                                                                Background="#F0F0F0" BorderBrush="#DDD"
+                                                                Click="RejectOffer_Click"
+                                                                Tag="{Binding}"/>
+                                                        <Button Content="接收" Padding="12,4"
+                                                                FontSize="12" Cursor="Hand" FontWeight="SemiBold"
+                                                                Background="#12B7F5" Foreground="White" BorderThickness="0"
+                                                                Click="AcceptOffer_Click"
+                                                                Tag="{Binding}"/>
+                                                    </StackPanel>
+                                                </StackPanel>
                                             </Border>
                                             <!-- 纯文本（无表情图）：用只读 TextBox 支持选中/复制，双击全选 -->
                                             <TextBox Text="{Binding Text}" TextWrapping="Wrap" FontSize="13"

@@ -15,15 +15,18 @@ public sealed class TcpFileServer : IAsyncDisposable
     private readonly int _port;
     private readonly Encoding _encoding;
     private readonly Func<long, int, SharedFile?> _lookup;
+    private readonly Action<FileTransferProgress>? _onProgress;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptTask;
 
-    public TcpFileServer(int port, Encoding encoding, Func<long, int, SharedFile?> lookup)
+    public TcpFileServer(int port, Encoding encoding, Func<long, int, SharedFile?> lookup,
+        Action<FileTransferProgress>? onProgress = null)
     {
         _port = port;
         _encoding = encoding;
         _lookup = lookup;
+        _onProgress = onProgress;
     }
 
     public Task StartAsync(CancellationToken ct = default)
@@ -91,13 +94,30 @@ public sealed class TcpFileServer : IAsyncDisposable
                 if (offset > 0 && offset < fs.Length)
                     fs.Seek(offset, SeekOrigin.Begin);
 
+                var total = fs.Length;
+                long sent = offset;
                 var chunk = new byte[64 * 1024];
                 int read;
                 while ((read = await fs.ReadAsync(chunk, ct).ConfigureAwait(false)) > 0)
                 {
                     await stream.WriteAsync(chunk.AsMemory(0, read), ct).ConfigureAwait(false);
+                    sent += read;
+                    _onProgress?.Invoke(new FileTransferProgress
+                    {
+                        FileName = shared.FileName,
+                        Received = sent,
+                        Total = total,
+                        Done = false
+                    });
                 }
                 await stream.FlushAsync(ct).ConfigureAwait(false);
+                _onProgress?.Invoke(new FileTransferProgress
+                {
+                    FileName = shared.FileName,
+                    Received = sent,
+                    Total = total,
+                    Done = true
+                });
             }
         }
         catch
