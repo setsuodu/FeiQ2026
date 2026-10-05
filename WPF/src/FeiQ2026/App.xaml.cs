@@ -17,6 +17,8 @@ public partial class App : System.Windows.Application
     private static Forms.NotifyIcon? _tray;
     private static MainWindow? _main;
     private static Peer? _lastBalloonPeer;
+    /// <summary>最近一次气泡的点击回调（如「发现新版本」→ 打开设置并检查更新）</summary>
+    private static Action? _lastBalloonClick;
 
     /// <summary>
     /// 自定义入口：Velopack 必须在任意 UI / 业务逻辑之前 Run()。
@@ -97,9 +99,17 @@ public partial class App : System.Windows.Application
         _tray.ContextMenuStrip = menu;
 
         _tray.DoubleClick += (_, _) => ShowMain();
-        // 点击 Windows 气泡通知 → 打开对应 Chat 窗口（无 peer 时打开主面板）
+        // 点击 Windows 气泡通知
         _tray.BalloonTipClicked += (_, _) =>
         {
+            // 优先执行专用回调（如更新提醒）
+            var click = _lastBalloonClick;
+            _lastBalloonClick = null;
+            if (click != null)
+            {
+                try { click(); } catch { /* ignore */ }
+                return;
+            }
             if (_lastBalloonPeer != null && _main != null)
                 _main.OpenChatFromNotification(_lastBalloonPeer);
             else
@@ -135,12 +145,14 @@ public partial class App : System.Windows.Application
     }
 
     /// <param name="peer">若提供，点击通知时会打开与该 peer 的 Chat 窗口</param>
-    public static void Balloon(string title, string text, Peer? peer = null)
+    /// <param name="onClick">若提供，点击通知时优先执行（例如打开设置检查更新）</param>
+    public static void Balloon(string title, string text, Peer? peer = null, Action? onClick = null)
     {
         try
         {
             _lastBalloonPeer = peer;
-            _tray?.ShowBalloonTip(3000, title,
+            _lastBalloonClick = onClick;
+            _tray?.ShowBalloonTip(5000, title,
                 text.Length > 80 ? text[..80] + "…" : text,
                 Forms.ToolTipIcon.Info);
         }

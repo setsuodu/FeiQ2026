@@ -85,6 +85,10 @@ public partial class MainWindow : Window
     }
 
     private void Avatar_Click(object sender, MouseButtonEventArgs e)
+        => OpenSettings();
+
+    /// <summary>打开设置；保存后刷新资料 / 目录 / 重连。</summary>
+    public void OpenSettings()
     {
         var dlg = new SettingsWindow(_settings) { Owner = this };
         if (dlg.ShowDialog() != true) return;
@@ -107,6 +111,32 @@ public partial class MainWindow : Window
         _ = PushAvatarToAllAsync();
 
         // 用户名/下载目录变更：重连以生效
+        _ = RestartServiceAsync();
+    }
+
+    /// <summary>
+    /// 托盘「发现新版本」气泡点击：打开主窗口 → 设置 → 自动走交互式检查更新。
+    /// </summary>
+    public void OpenSettingsAndCheckUpdate()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+        var dlg = new SettingsWindow(_settings, autoCheckUpdate: true) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+
+        var oldDb = _settings.ChatDbPath;
+        _settings = AppSettings.Load();
+        ApplyProfileUi();
+        if (!string.Equals(oldDb, _settings.ChatDbPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _chatStore.Dispose();
+            _chatStore = new ChatStore(_settings.ChatDbPath);
+            try { _outbox.Dispose(); } catch { }
+            _outbox = new OutboxStore(Path.Combine(_settings.ChatDbDir, "outbox.db"));
+            LoadSessionsFromStore();
+        }
+        _ = PushAvatarToAllAsync();
         _ = RestartServiceAsync();
     }
 

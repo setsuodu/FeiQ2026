@@ -41,7 +41,18 @@ public static class UpdateService
                 return;
 
             var ver = update.TargetFullRelease.Version?.ToString() ?? "?";
-            App.Balloon("发现新版本", $"FeiQ 2026 {ver} 可用，请到「设置」中检查更新。");
+            App.Balloon(
+                "发现新版本",
+                $"FeiQ 2026 {ver} 可用，点击此通知可检查并安装。",
+                onClick: () =>
+                {
+                    System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                    {
+                        App.ShowMain();
+                        if (System.Windows.Application.Current.MainWindow is MainWindow mw)
+                            mw.OpenSettingsAndCheckUpdate();
+                    });
+                });
         }
         catch (NotInstalledException)
         {

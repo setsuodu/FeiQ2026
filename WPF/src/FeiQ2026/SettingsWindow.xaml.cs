@@ -16,12 +16,14 @@ public partial class SettingsWindow : Window
 
     private readonly AppSettings _settings;
     private string? _avatarPath;
+    private readonly bool _autoCheckUpdate;
 
-    public SettingsWindow(AppSettings settings)
+    public SettingsWindow(AppSettings settings, bool autoCheckUpdate = false)
     {
         InitializeComponent();
         _settings = settings;
         _avatarPath = settings.AvatarPath;
+        _autoCheckUpdate = autoCheckUpdate;
 
         UserNameBox.Text = settings.UserName;
         ServerUrlBox.Text = settings.LastServerUrl;
@@ -30,6 +32,16 @@ public partial class SettingsWindow : Window
         StartWithWindowsCheck.IsChecked = settings.StartWithWindows || IsStartupRegistered();
         RefreshAvatarPreview();
         VersionText.Text = $"版本 {GetAppVersion()}";
+
+        if (_autoCheckUpdate)
+            Loaded += async (_, _) => await RunAutoCheckUpdateAsync();
+    }
+
+    private async Task RunAutoCheckUpdateAsync()
+    {
+        await Task.Delay(200);
+        if (!IsLoaded) return;
+        await CheckUpdateCoreAsync();
     }
 
     private static string GetAppVersion()
@@ -125,6 +137,9 @@ public partial class SettingsWindow : Window
 
 
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+        => await CheckUpdateCoreAsync();
+
+    private async Task CheckUpdateCoreAsync()
     {
         CheckUpdateBtn.IsEnabled = false;
         try
