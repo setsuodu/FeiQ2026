@@ -33,8 +33,13 @@
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="用户名" FontSize="12" Foreground="#666" Margin="0,0,0,4"/>
                             <TextBox x:Name="UserNameBox" Height="28" Padding="4,2" MaxLength="32"/>
-                            <Button Content="更换头像..." Margin="0,8,0,0" Padding="8,3" HorizontalAlignment="Left"
-                                    Click="ChangeAvatar_Click" Background="#F5F5F5" BorderBrush="#DDD"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="更换头像..." Padding="8,3" Margin="0,0,8,0"
+                                        Click="ChangeAvatar_Click" Background="#F5F5F5" BorderBrush="#DDD"/>
+                                <Button Content="清除头像" Padding="8,3"
+                                        Click="ClearAvatar_Click" Background="#F5F5F5" BorderBrush="#DDD"
+                                        ToolTip="恢复为默认字母头像"/>
+                            </StackPanel>
                         </StackPanel>
                     </DockPanel>
                 </Border>
@@ -99,10 +104,14 @@
             </StackPanel>
         </ScrollViewer>
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button Content="取消" Width="72" Height="30" Margin="0,0,8,0" IsCancel="True" Click="Cancel_Click"/>
-            <Button Content="保存" Width="72" Height="30" IsDefault="True" Click="Save_Click"
-                    Background="#12B7F5" Foreground="White" BorderThickness="0" FontWeight="SemiBold"/>
-        </StackPanel>
+        <DockPanel Grid.Row="2" Margin="0,14,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                <Button Content="取消" Width="72" Height="30" Margin="0,0,8,0" IsCancel="True" Click="Cancel_Click"/>
+                <Button Content="保存" Width="72" Height="30" IsDefault="True" Click="Save_Click"
+                        Background="#12B7F5" Foreground="White" BorderThickness="0" FontWeight="SemiBold"/>
+            </StackPanel>
+            <TextBlock x:Name="VersionText" Text="版本 —" FontSize="11" Foreground="#999"
+                       VerticalAlignment="Center" TextWrapping="Wrap"/>
+        </DockPanel>
     </Grid>
 </Window>

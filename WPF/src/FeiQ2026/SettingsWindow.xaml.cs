@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -28,6 +29,27 @@ public partial class SettingsWindow : Window
         ChatDirBox.Text = settings.ChatDbDir;
         StartWithWindowsCheck.IsChecked = settings.StartWithWindows || IsStartupRegistered();
         RefreshAvatarPreview();
+        VersionText.Text = $"版本 {GetAppVersion()}";
+    }
+
+    private static string GetAppVersion()
+    {
+        try
+        {
+            var asm = Assembly.GetExecutingAssembly();
+            var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (!string.IsNullOrWhiteSpace(info))
+            {
+                // 去掉可能附带的 git hash（+ 之后）
+                var plus = info.IndexOf('+');
+                return plus > 0 ? info[..plus] : info;
+            }
+            var ver = asm.GetName().Version;
+            if (ver != null)
+                return $"{ver.Major}.{ver.Minor}.{ver.Build}";
+        }
+        catch { /* ignore */ }
+        return "—";
     }
 
     private void RefreshAvatarPreview()
@@ -68,6 +90,12 @@ public partial class SettingsWindow : Window
         };
         if (dlg.ShowDialog() != true) return;
         _avatarPath = dlg.FileName;
+        RefreshAvatarPreview();
+    }
+
+    private void ClearAvatar_Click(object sender, RoutedEventArgs e)
+    {
+        _avatarPath = null;
         RefreshAvatarPreview();
     }
 
