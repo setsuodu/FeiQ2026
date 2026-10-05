@@ -87,6 +87,11 @@ jobs:
             --outputDir .\releases `
             --packTitle "FeiQ 2026" `
             --packAuthors setsuodu
+          # 不上传：assets.win.json（CI 元数据）、RELEASES（Squirrel 兼容，本项目未用过）
+          Remove-Item -Force -ErrorAction SilentlyContinue `
+            .\releases\assets.win.json, `
+            .\releases\RELEASES, `
+            .\releases\RELEASES-*
           Get-ChildItem .\releases | Format-Table Name, Length
 
       - name: Upload artifact
@@ -94,7 +99,7 @@ jobs:
         with:
           name: FeiQ2026-WPF-win-x64-${{ steps.ver.outputs.version }}
           path: |
-            publish/
+            publish/FeiQ2026.exe
             releases/
           if-no-files-found: error
           retention-days: 14
@@ -103,17 +108,38 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/wpf/v')
         uses: softprops/action-gh-release@v2
         with:
-          # 绿色单文件 + Velopack 安装包与 releases 清单（GithubSource 依赖这些资源）
+          # 只挂用户需要的产物（已排除 assets.win.json / RELEASES）
           files: |
             publish/FeiQ2026.exe
-            releases/*
+            releases/FeiQ2026-*-full.nupkg
+            releases/FeiQ2026-*-delta.nupkg
+            releases/FeiQ2026-win-Setup.exe
+            releases/FeiQ2026-win-Portable.zip
+            releases/releases.win.json
+          fail_on_unmatched_files: false
           generate_release_notes: true
-          name: FeiQ 2026 WPF Release ${{ github.ref_name }}
+          name: FeiQ 2026 WPF ${{ steps.ver.outputs.version }}
           body: |
             ## FeiQ 2026 WPF ${{ steps.ver.outputs.version }}
-            - Version: `${{ steps.ver.outputs.version }}`
-            - **推荐安装**：`FeiQ2026-win-Setup.exe`（Velopack，支持自动更新）
-            - 绿色单文件：`FeiQ2026.exe`（无自动更新）
-            - 更新源：本仓库 GitHub Releases
+
+            - **Version**: `${{ steps.ver.outputs.version }}`
+            - **推荐安装**: `FeiQ2026-win-Setup.exe`（Velopack，支持自动更新）
+            - **绿色单文件**: `FeiQ2026.exe`（无自动更新）
+            - **更新源**: 本仓库 GitHub Releases
+
+            ### Assets 说明
+
+            | 文件 | 是什么 | 给谁用 |
+            |------|--------|--------|
+            | `FeiQ2026-win-Setup.exe` | 一键安装包（装到 `%LocalAppData%\FeiQ2026`） | **普通用户首选** |
+            | `FeiQ2026-win-Portable.zip` | 绿色便携包（解压即用，可更新） | 不想安装的用户 |
+            | `FeiQ2026.exe` | 单文件绿色版 | 纯绿色、不装 Velopack（**无自动更新**） |
+            | `FeiQ2026-*-full.nupkg` | 完整更新包 | 已安装用户自动升级（**必须保留**） |
+            | `FeiQ2026-*-delta.nupkg` | 增量更新包（若有） | 加速升级，可选 |
+            | `releases.win.json` | 版本清单 | 自动更新索引（**必须保留**） |
+
+            > GitHub 自动附带的 `Source code (zip/tar.gz)` 无法关闭；要源码请直接 clone 仓库，不要下这两个包。
+
+            **自动更新最少需要**: `Setup.exe` + `*-full.nupkg` + `releases.win.json`（三者须在同一 Release）。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

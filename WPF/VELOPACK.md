@@ -40,8 +40,24 @@ vpk pack \
   --outputDir ./releases
 
 # 4. 安装测试：运行 releases 里的 FeiQ2026-win-Setup.exe
-# 5. 把 releases/* 上传到 GitHub Release（或推 tag wpf/v1.0.0 走 CI）
+# 5. 推 tag wpf/v1.0.0 走 CI（会自动排除 assets.win.json / RELEASES）
 ```
+
+## Release 上传哪些文件
+
+CI（`wpf-publish.yml`）只挂：
+
+| 文件 | 说明 |
+|------|------|
+| `FeiQ2026-win-Setup.exe` | 推荐安装入口 |
+| `FeiQ2026-win-Portable.zip` | 便携版 |
+| `FeiQ2026.exe` | 绿色单文件（无自动更新） |
+| `*-full.nupkg` | 自动更新完整包 |
+| `*-delta.nupkg` | 增量包（有则上传） |
+| `releases.win.json` | 更新索引 |
+
+**不上传**：`assets.win.json`（CI 元数据）、`RELEASES`（Squirrel 兼容，本项目未用过）。  
+GitHub 自动生成的 Source code zip/tar.gz 无法关闭，忽略即可。
 
 ## 更新源
 
@@ -51,7 +67,7 @@ vpk pack \
 new GithubSource("https://github.com/setsuodu/FeiQ2026", null, prerelease: false)
 ```
 
-因此 **必须把 vpk 生成的 nupkg / releases.win.json / Setup.exe 等上传到该仓库的 GitHub Releases**，仅上传绿色 `FeiQ2026.exe` 时自动更新不会生效。
+因此 **必须把 nupkg / releases.win.json / Setup.exe 上传到该仓库的 GitHub Releases**，仅上传绿色 `FeiQ2026.exe` 时自动更新不会生效。
 
 ## 用户侧行为
 
