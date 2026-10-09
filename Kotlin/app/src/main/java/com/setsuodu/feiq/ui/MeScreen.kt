@@ -41,6 +41,15 @@ internal fun MeScreen(
     var avatar by remember(avatarPath) { mutableStateOf(avatarPath) }
     var savedTip by remember { mutableStateOf(false) }
 
+    val appVersion = remember {
+        try {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
+        } catch (_: Exception) {
+            "?"
+        }
+    }
+
     val pickAvatar = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -180,5 +189,16 @@ internal fun MeScreen(
                 modifier = Modifier.padding(16.dp)
             )
         }
+
+        Spacer(Modifier.weight(1f))
+        Text(
+            "版本 $appVersion",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.Gray,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
     }
 }
