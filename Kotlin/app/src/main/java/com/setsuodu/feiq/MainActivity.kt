@@ -19,7 +19,7 @@ import com.setsuodu.feiq.ui.MiniFeiQApp
 
 class MainActivity : ComponentActivity() {
 
-    // Android 13+：不申请就收不到任何通知（包括极光推送的通知）
+    // Android 13+：不申请就收不到前台服务等系统通知
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 

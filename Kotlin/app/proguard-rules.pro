@@ -1,8 +1,1 @@
-# JPush
--dontwarn cn.jpush.**
--keep class cn.jpush.** { *; }
--keep class cn.jiguang.** { *; }
-
-# 小米
--dontwarn com.xiaomi.**
--keep class com.xiaomi.** { *; }
+# (JPush / 小米推送相关 keep 规则已移除)

@@ -39,11 +39,20 @@ internal fun ChatScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var emojiOpen by remember { mutableStateOf(false) }
+    var attachOpen by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
+    // 多选：相册（图片/视频）与任意文件，对齐 WPF Multiselect
+    val pickAlbumLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        uris.forEach { onSendFile(it) }
+    }
     val pickFileLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? -> if (uri != null) onSendFile(uri) }
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        uris.forEach { onSendFile(it) }
+    }
 
     BackHandler { onBack() }
 
@@ -106,6 +115,7 @@ internal fun ChatScreen(
                     keyboard?.hide()
                     focusManager.clearFocus()
                     emojiOpen = false
+                    attachOpen = false
                 }
         ) {
             items(logs) { msg ->
@@ -131,6 +141,21 @@ internal fun ChatScreen(
             )
         }
 
+        // 附件面板（+ 拉起，与表情类似）
+        if (attachOpen) {
+            AttachmentPanel(
+                onAlbum = {
+                    attachOpen = false
+                    pickAlbumLauncher.launch("image/*")
+                },
+                onFile = {
+                    attachOpen = false
+                    pickFileLauncher.launch("*/*")
+                },
+                onClose = { attachOpen = false }
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -142,6 +167,7 @@ internal fun ChatScreen(
                 onClick = {
                     emojiOpen = !emojiOpen
                     if (emojiOpen) {
+                        attachOpen = false
                         keyboard?.hide()
                         focusManager.clearFocus()
                     }
@@ -156,6 +182,7 @@ internal fun ChatScreen(
                     .onFocusChanged { state ->
                         if (state.isFocused) {
                             emojiOpen = false
+                            attachOpen = false
                         }
                     },
                 singleLine = false,
@@ -173,11 +200,22 @@ internal fun ChatScreen(
                         onSendText(text)
                         input = ""
                         emojiOpen = false
+                        attachOpen = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = WeChatGreen)
                 ) { Text("发送") }
             } else {
-                OutlinedButton(onClick = { pickFileLauncher.launch("*/*") }) { Text("文件") }
+                // 与表情按钮风格一致：+ 拉起附件菜单（相册 / 文件，可多选）
+                TextButton(
+                    onClick = {
+                        attachOpen = !attachOpen
+                        if (attachOpen) {
+                            emojiOpen = false
+                            keyboard?.hide()
+                            focusManager.clearFocus()
+                        }
+                    }
+                ) { Text(if (attachOpen) "⌨️" else "＋", style = MaterialTheme.typography.titleMedium) }
             }
         }
     }
@@ -197,5 +235,51 @@ internal fun ChatScreen(
                 TextButton(onClick = { confirmClear = false }) { Text("取消") }
             }
         )
+    }
+}
+
+/** 附件选择面板：相册（图片多选）/ 文件（任意文件多选），对齐 WPF 端多选 */
+@Composable
+private fun AttachmentPanel(
+    onAlbum: () -> Unit,
+    onFile: () -> Unit,
+    onClose: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF7F7F7))
+            .padding(vertical = 16.dp, horizontal = 12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            AttachAction(icon = "🖼", label = "相册", onClick = onAlbum)
+            AttachAction(icon = "📁", label = "文件", onClick = onFile)
+        }
+    }
+}
+
+@Composable
+private fun AttachAction(icon: String, label: String, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(12.dp)
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = Color.White,
+            shadowElevation = 1.dp,
+            modifier = Modifier.size(56.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Text(icon, style = MaterialTheme.typography.headlineSmall)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Color.DarkGray)
     }
 }

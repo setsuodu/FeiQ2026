@@ -19,16 +19,13 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 - [x] ci 和 Android & WPF Version 注入关联
 - [x] 图片、音频、视频：图片&视频独立 MediaViewer（ExoPlayer）；音频 Chat 内点播
 - [x] 消息通知（Windows Toast）
-- [x] 消息通知（Android JPush）
-	- ❌小米只接受企业，放弃
-	- OPPO/VIVO个人可以申请
 - [x] APK 更换包名：com.setsuodu.feiq
 - [x] NAT 走 TCP应用+自动https。客户端全换：wss://s0.v100.vip:27658/ws
 - [x] WPF Velopack
+- [ ] 传输加密（TLS）
 - [ ] 长按语音发送
 - [ ] 实时童话、会议（WebRTC）
 - [ ] 图片压缩（大图走文件通道）
-- [ ] 传输加密（TLS）
 - [ ] 群组广播消息
 - [ ] macOS/Linux 客户端
 - [ ] 钉钉like 接入 ci 推送

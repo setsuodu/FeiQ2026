@@ -14,15 +14,6 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
-
-        // JPush
-        manifestPlaceholders["JPUSH_PKGNAME"] = applicationId!!
-        manifestPlaceholders["JPUSH_APPKEY"] = "056f5f11f3832f86529e86b4"   // ← 改成真实值
-        manifestPlaceholders["JPUSH_CHANNEL"] = "developer-default"
-        // 小米厂商通道（xiaomi 插件的 aar 里用 ${XIAOMI_APPID}/${XIAOMI_APPKEY} 占位，必须在这里提供）
-        // 5.5.3 起不需要 "MI-" 前缀；下面是你原 Manifest 里的值，换成小米开放平台的真实值
-        manifestPlaceholders["XIAOMI_APPID"] = "2882303761517422222"
-        manifestPlaceholders["XIAOMI_APPKEY"] = "5111742222222"
     }
 
     buildTypes {
@@ -76,9 +67,4 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
-
-    // ========== JPush（mavenCentral，仅小米通道）==========
-    // JCore 由 jpush 自动拉取；厂商插件版本须与 JPush 版本一致
-    implementation("cn.jiguang.sdk:jpush:6.2.1")
-    implementation("cn.jiguang.sdk.plugin:xiaomi:6.2.1")
 }

@@ -13,12 +13,6 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- JPush 自定义权限 -->
-    <permission
-        android:name="${applicationId}.permission.JPUSH_MESSAGE"
-        android:protectionLevel="signature" />
-    <uses-permission android:name="${applicationId}.permission.JPUSH_MESSAGE" />
-
     <application
         android:name=".FeiQApplication"
         android:allowBackup="true"
@@ -69,21 +63,6 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- 补上这个极光核心长连接服务 -->
-        <service
-            android:name="com.setsuodu.feiq.push.PushService"
-            android:enabled="true"
-            android:exported="false"
-            android:process=":pushcore">
-            <intent-filter>
-                <action android:name="cn.jpush.android.intent.REGISTERService" />
-                <action android:name="cn.jpush.android.intent.REPORTService" />
-                <action android:name="cn.jpush.android.intent.PushService" />
-                <action android:name="cn.jpush.android.intent.PUSH_TIME" />
-                <action android:name="cn.jiguang.user.service.action" />
-            </intent-filter>
-        </service>
-
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -93,26 +72,6 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-
-        <!-- ========== JPush Meta-Data ========== -->
-        <meta-data
-            android:name="JPUSH_CHANNEL"
-            android:value="${JPUSH_CHANNEL}" />
-        <meta-data
-            android:name="JPUSH_APPKEY"
-            android:value="${JPUSH_APPKEY}" />
-
-        <!-- XIAOMI_APPID / XIAOMI_APPKEY 由 xiaomi 插件的 Manifest 提供，值在 app/build.gradle.kts 的 manifestPlaceholders 里 -->
-
-        <receiver
-            android:name="com.setsuodu.feiq.push.JPushReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="cn.jpush.android.intent.RECEIVE_MESSAGE" />
-                <category android:name="${applicationId}" />
-            </intent-filter>
-        </receiver>
 
     </application>
 </manifest>
