@@ -101,7 +101,16 @@ public partial class SettingsWindow : Window
             CheckFileExists = true
         };
         if (dlg.ShowDialog() != true) return;
-        _avatarPath = dlg.FileName;
+
+        // 裁剪为 1:1 正方形后落到本机 AppData，避免直接引用原图路径
+        var dest = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "FeiQ2026", "avatar.jpg");
+        if (AvatarCache.SaveSquareJpeg(dlg.FileName, dest, maxEdge: 256, quality: 85))
+            _avatarPath = dest;
+        else
+            _avatarPath = dlg.FileName; // 兜底
+
         RefreshAvatarPreview();
     }
 

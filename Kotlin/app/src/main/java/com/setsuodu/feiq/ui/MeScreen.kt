@@ -48,7 +48,13 @@ internal fun MeScreen(
         try {
             val dest = File(context.filesDir, "avatar.jpg")
             context.contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(dest).use { output -> input.copyTo(output) }
+                // 1:1 中心裁剪后落盘
+                if (!com.setsuodu.feiq.data.AvatarCache.saveSquareFromStream(input, dest)) {
+                    // 兜底：原样复制
+                    context.contentResolver.openInputStream(uri)?.use { input2 ->
+                        FileOutputStream(dest).use { output -> input2.copyTo(output) }
+                    }
+                }
             }
             avatar = dest.absolutePath
         } catch (_: Exception) { }

@@ -6,13 +6,17 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 
 /**
  * FeiQ2026 之间头像同步缓存（与飞秋2013无关）。
  * 协议：普通文本消息，正文 = Magic + Base64(JPEG缩略图)
+ * 请求：MagicReq，对端收到后回推自己的头像。
  */
 object AvatarCache {
     const val MAGIC = "__MFQ_AVATAR__:"
+    const val MAGIC_REQ = "__MFQ_AVATAR_REQ__"
 
     private fun dir(context: Context): File {
         val d = File(context.filesDir, "avatars")
@@ -35,6 +39,9 @@ object AvatarCache {
         return if (f.exists()) f.absolutePath else null
     }
 
+    /**
+     * 中心裁剪为 1:1 正方形（取短边），再缩放到 maxEdge，输出 JPEG。
+     */
     fun encodeThumbnail(avatarPath: String?, maxEdge: Int = 64, quality: Int = 55): ByteArray? {
         if (avatarPath.isNullOrEmpty()) return null
         val file = File(avatarPath)
@@ -47,17 +54,53 @@ object AvatarCache {
             while (max / sample > maxEdge * 2) sample *= 2
             val opts = BitmapFactory.Options().apply { inSampleSize = sample }
             val bmp = BitmapFactory.decodeFile(avatarPath, opts) ?: return null
-            val scale = maxEdge.toFloat() / maxOf(bmp.width, bmp.height)
-            val w = (bmp.width * scale).toInt().coerceAtLeast(1)
-            val h = (bmp.height * scale).toInt().coerceAtLeast(1)
-            val scaled = Bitmap.createScaledBitmap(bmp, w, h, true)
-            if (scaled !== bmp) bmp.recycle()
+            val square = centerCropSquare(bmp)
+            if (square !== bmp) bmp.recycle()
+            val scale = maxEdge.toFloat() / maxOf(square.width, square.height)
+            val w = (square.width * scale).toInt().coerceAtLeast(1)
+            val h = (square.height * scale).toInt().coerceAtLeast(1)
+            val scaled = Bitmap.createScaledBitmap(square, w, h, true)
+            if (scaled !== square) square.recycle()
             val baos = ByteArrayOutputStream()
             scaled.compress(Bitmap.CompressFormat.JPEG, quality, baos)
             scaled.recycle()
             baos.toByteArray()
         } catch (_: Exception) {
             null
+        }
+    }
+
+    private fun centerCropSquare(src: Bitmap): Bitmap {
+        val w = src.width
+        val h = src.height
+        if (w == h) return src
+        val side = minOf(w, h)
+        val x = (w - side) / 2
+        val y = (h - side) / 2
+        return Bitmap.createBitmap(src, x, y, side, side)
+    }
+
+    /**
+     * 从 InputStream 读图，裁 1:1 后写到 dest（本地头像落盘）。
+     */
+    fun saveSquareFromStream(input: InputStream, dest: File, maxEdge: Int = 256, quality: Int = 85): Boolean {
+        return try {
+            val bmp = BitmapFactory.decodeStream(input) ?: return false
+            val square = centerCropSquare(bmp)
+            if (square !== bmp) bmp.recycle()
+            val scale = maxEdge.toFloat() / maxOf(square.width, square.height)
+            val w = (square.width * scale).toInt().coerceAtLeast(1)
+            val h = (square.height * scale).toInt().coerceAtLeast(1)
+            val scaled = Bitmap.createScaledBitmap(square, w, h, true)
+            if (scaled !== square) square.recycle()
+            dest.parentFile?.mkdirs()
+            FileOutputStream(dest).use { out ->
+                scaled.compress(Bitmap.CompressFormat.JPEG, quality, out)
+            }
+            scaled.recycle()
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -76,4 +119,6 @@ object AvatarCache {
             null
         }
     }
+
+    fun isRequest(text: String): Boolean = text.trim() == MAGIC_REQ
 }

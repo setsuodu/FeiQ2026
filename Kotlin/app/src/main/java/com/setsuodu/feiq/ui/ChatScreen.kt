@@ -10,12 +10,21 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -76,7 +85,13 @@ internal fun ChatScreen(
                 .padding(horizontal = 4.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(onClick = onBack) { Text("←") }
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    tint = Color.Black
+                )
+            }
             Column(Modifier.weight(1f)) {
                 Text(peer.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
@@ -86,7 +101,13 @@ internal fun ChatScreen(
                 )
             }
             Box {
-                TextButton(onClick = { menuOpen = true }) { Text("···") }
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreHoriz,
+                        contentDescription = "更多",
+                        tint = Color.Black
+                    )
+                }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
                         text = { Text("清空聊天记录") },
@@ -163,7 +184,7 @@ internal fun ChatScreen(
                 .padding(horizontal = 8.dp, vertical = 10.dp),
             verticalAlignment = Alignment.Bottom
         ) {
-            TextButton(
+            IconButton(
                 onClick = {
                     emojiOpen = !emojiOpen
                     if (emojiOpen) {
@@ -172,7 +193,13 @@ internal fun ChatScreen(
                         focusManager.clearFocus()
                     }
                 }
-            ) { Text(if (emojiOpen) "⌨️" else "😀", style = MaterialTheme.typography.titleMedium) }
+            ) {
+                Icon(
+                    imageVector = if (emojiOpen) Icons.Default.Keyboard else Icons.Default.EmojiEmotions,
+                    contentDescription = if (emojiOpen) "键盘" else "表情",
+                    tint = Color(0xFF576B95)
+                )
+            }
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -206,7 +233,7 @@ internal fun ChatScreen(
                 ) { Text("发送") }
             } else {
                 // 与表情按钮风格一致：+ 拉起附件菜单（相册 / 文件，可多选）
-                TextButton(
+                IconButton(
                     onClick = {
                         attachOpen = !attachOpen
                         if (attachOpen) {
@@ -215,7 +242,13 @@ internal fun ChatScreen(
                             focusManager.clearFocus()
                         }
                     }
-                ) { Text(if (attachOpen) "⌨️" else "＋", style = MaterialTheme.typography.titleMedium) }
+                ) {
+                    Icon(
+                        imageVector = if (attachOpen) Icons.Default.Keyboard else Icons.Default.Add,
+                        contentDescription = if (attachOpen) "键盘" else "附件",
+                        tint = Color(0xFF576B95)
+                    )
+                }
             }
         }
     }
@@ -255,14 +288,26 @@ private fun AttachmentPanel(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            AttachAction(icon = "🖼", label = "相册", onClick = onAlbum)
-            AttachAction(icon = "📁", label = "文件", onClick = onFile)
+            AttachAction(
+                icon = Icons.Default.PhotoLibrary,
+                label = "相册",
+                onClick = onAlbum
+            )
+            AttachAction(
+                icon = Icons.Default.Folder,
+                label = "文件",
+                onClick = onFile
+            )
         }
     }
 }
 
 @Composable
-private fun AttachAction(icon: String, label: String, onClick: () -> Unit) {
+private fun AttachAction(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -276,7 +321,12 @@ private fun AttachAction(icon: String, label: String, onClick: () -> Unit) {
             modifier = Modifier.size(56.dp)
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Text(icon, style = MaterialTheme.typography.headlineSmall)
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = Color(0xFF576B95),
+                    modifier = Modifier.size(28.dp)
+                )
             }
         }
         Spacer(Modifier.height(6.dp))

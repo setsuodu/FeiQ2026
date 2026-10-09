@@ -307,12 +307,16 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                         if (i >= 0) users[i] = p else users.add(p)
                         upsertSession(p)
                     }
-                    // 向对方推送自己的头像（FeiQ2026）
+                    // 向对方推送自己的头像（FeiQ2026）；本地缺对方头像则请求一次
                     scope.launch(Dispatchers.IO) {
-                        val msg = AvatarCache.buildSyncMessage(settings.avatarPath) ?: return@launch
-                        try {
-                            svc.sendText(p.ip, msg, requireAck = false)
-                        } catch (_: Exception) { }
+                        val msg = AvatarCache.buildSyncMessage(settings.avatarPath)
+                        if (msg != null) {
+                            try { svc.sendText(p.ip, msg, requireAck = false) } catch (_: Exception) { }
+                        }
+                        val key = peerKey(p)
+                        if (AvatarCache.getPath(context, key) == null) {
+                            try { svc.sendText(p.ip, AvatarCache.MAGIC_REQ, requireAck = false) } catch (_: Exception) { }
+                        }
                     }
                 }
                 svc.onPeerOffline = { p ->
@@ -322,14 +326,25 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                     }
                 }
                 svc.onMessage = { p, text ->
-                    scope.launch(Dispatchers.Main) {
-                        val jpeg = AvatarCache.tryParse(text)
-                        if (jpeg != null) {
-                            AvatarCache.save(context, peerKey(p), jpeg)
-                            avatarTick++ // 触发列表/气泡重绘
-                            return@launch
+                    when {
+                        // 对方请求我的头像：回推一次
+                        AvatarCache.isRequest(text) -> {
+                            scope.launch(Dispatchers.IO) {
+                                val msg = AvatarCache.buildSyncMessage(settings.avatarPath) ?: return@launch
+                                try { svc.sendText(p.ip, msg, requireAck = false) } catch (_: Exception) { }
+                            }
                         }
-                        appendLog(p, "in", text)
+                        else -> {
+                            scope.launch(Dispatchers.Main) {
+                                val jpeg = AvatarCache.tryParse(text)
+                                if (jpeg != null) {
+                                    AvatarCache.save(context, peerKey(p), jpeg)
+                                    avatarTick++ // 触发列表/气泡重绘
+                                } else {
+                                    appendLog(p, "in", text)
+                                }
+                            }
+                        }
                     }
                 }
                 svc.onFileOffered = { offer ->
@@ -603,6 +618,15 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                             ensureHistory(live)
                             unread[peerKey(live)] = 0
                             chatPeer = live
+                            // 本地无对方头像时请求一次（低频）
+                            val key = peerKey(live)
+                            if (AvatarCache.getPath(context, key) == null) {
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        service?.sendText(live.ip, AvatarCache.MAGIC_REQ, requireAck = false)
+                                    } catch (_: Exception) { }
+                                }
+                            }
                         },
                         onRefresh = {
                             scope.launch(Dispatchers.IO) {

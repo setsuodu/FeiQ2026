@@ -23,9 +23,13 @@
         <!-- 标题栏信息 -->
         <Border Grid.Row="0" Background="White" BorderBrush="#E5E5E5" BorderThickness="0,0,0,1" Padding="14,10">
             <DockPanel>
-                <Border Width="36" Height="36" CornerRadius="18" Background="#12B7F5" DockPanel.Dock="Left" Margin="0,0,10,0">
-                    <TextBlock x:Name="AvatarText" Text="?" Foreground="White" FontWeight="Bold"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Border Width="36" Height="36" CornerRadius="18" Background="#12B7F5" DockPanel.Dock="Left" Margin="0,0,10,0" ClipToBounds="True">
+                    <Grid>
+                        <TextBlock x:Name="AvatarText" Text="?" Foreground="White" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Image x:Name="PeerTitleAvatarImage" Stretch="UniformToFill"
+                               Visibility="Collapsed"/>
+                    </Grid>
                 </Border>
                 <Button Content="⋮" Width="32" Height="28" FontSize="16" Padding="0"
                         DockPanel.Dock="Right" VerticalAlignment="Center"

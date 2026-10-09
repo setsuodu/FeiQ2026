@@ -269,8 +269,9 @@ public partial class MainWindow : Window
             UpsertFriend(peer, isOnline: true);
             UpdateOnlineCount();
         });
-        // 向新上线的 FeiQ2026 好友推送自己的头像
+        // 向新上线的 FeiQ2026 好友推送自己的头像，并在本地缺对方头像时请求一次
         _ = PushAvatarToAsync(peer);
+        RequestAvatarIfMissing(peer);
     }
 
     private void OnPeerOffline(Peer peer)
@@ -289,6 +290,13 @@ public partial class MainWindow : Window
 
     private void OnMessageReceived(Peer peer, string text)
     {
+        // 对方请求我的头像：回推一次（不进聊天记录）
+        if (AvatarCache.IsRequest(text))
+        {
+            _ = PushAvatarToAsync(peer);
+            return;
+        }
+
         // FeiQ2026 头像同步包：不进聊天记录、不弹气泡
         if (AvatarCache.TryParse(text, out var jpeg))
         {
@@ -474,6 +482,21 @@ public partial class MainWindow : Window
         item?.ReloadAvatar();
     }
 
+
+    /// <summary>
+    /// 本地没有对方头像时，发一次轻量请求（会话级去重），对端回推。
+    /// </summary>
+    private readonly HashSet<string> _avatarRequested = new(StringComparer.Ordinal);
+
+    private void RequestAvatarIfMissing(Peer peer)
+    {
+        var key = PeerKey(peer);
+        if (AvatarCache.GetPath(key) != null) return;
+        if (!_avatarRequested.Add(key)) return;
+        if (_service == null) return;
+        _ = _service.SendTextAsync(peer.Ip, AvatarCache.MagicReq, requireAck: false);
+    }
+
     private async Task PushAvatarToAsync(Peer peer)
     {
         if (_service == null) return;
@@ -650,6 +673,8 @@ public partial class MainWindow : Window
         win.Closed += (_, _) => _chats.Remove(key);
         _chats[key] = win;
         win.Show();
+        // 打开会话时若本地没有对方头像，请求一次（低频）
+        RequestAvatarIfMissing(peer);
         return win;
     }
 

@@ -62,43 +62,45 @@ public partial class ChatWindow : Window
         var settings = AppSettings.Load();
         var selfName = settings.UserName;
         _selfLetter = string.IsNullOrEmpty(selfName) ? "我" : selfName[..1].ToUpperInvariant();
-        _selfAvatarImage = LoadAvatarImage(settings.AvatarPath);
+        _selfAvatarImage = AvatarCache.LoadImageFromPath(settings.AvatarPath);
         _peerAvatarImage = AvatarCache.LoadImage(_peerKey);
 
         Title = $"{peer.Name} - FeiQ 2026";
         PeerNameText.Text = peer.Name;
         PeerIpText.Text = peer.Ip.ToString();
         AvatarText.Text = _peerLetter;
+        ApplyTitleAvatar(_peerAvatarImage);
         MsgList.ItemsSource = _messages;
 
         LoadHistory();
     }
 
-    /// <summary>收到对方头像同步后刷新气泡侧头像（新消息生效；历史保持字母亦可接受）</summary>
+    /// <summary>收到对方头像同步后：刷新标题栏 + 后续气泡用的字段</summary>
     public void UpdatePeerAvatar(string? path)
     {
-        _peerAvatarImage = LoadAvatarImage(path);
+        _peerAvatarImage = AvatarCache.LoadImageFromPath(path) ?? AvatarCache.LoadImage(_peerKey);
+        ApplyTitleAvatar(_peerAvatarImage);
+    }
+
+    private void ApplyTitleAvatar(ImageSource? img)
+    {
+        if (img != null)
+        {
+            PeerTitleAvatarImage.Source = img;
+            PeerTitleAvatarImage.Visibility = Visibility.Visible;
+            AvatarText.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            PeerTitleAvatarImage.Source = null;
+            PeerTitleAvatarImage.Visibility = Visibility.Collapsed;
+            AvatarText.Visibility = Visibility.Visible;
+            AvatarText.Text = _peerLetter;
+        }
     }
 
     private static ImageSource? LoadAvatarImage(string? path)
-    {
-        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
-        try
-        {
-            var bmp = new BitmapImage();
-            bmp.BeginInit();
-            bmp.CacheOption = BitmapCacheOption.OnLoad;
-            bmp.DecodePixelWidth = 72;
-            bmp.UriSource = new Uri(path, UriKind.Absolute);
-            bmp.EndInit();
-            bmp.Freeze();
-            return bmp;
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => AvatarCache.LoadImageFromPath(path);
 
     private void LoadHistory()
     {

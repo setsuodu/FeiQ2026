@@ -7,10 +7,12 @@ namespace FeiQ2026.Services;
 /// <summary>
 /// FeiQ2026 之间同步的头像缓存（与飞秋2013无关）。
 /// 协议：普通文本消息，正文以 Magic 前缀开头 + Base64 JPEG 缩略图。
+/// 请求协议：对方没有本地缓存时发 MagicReq，对端回推自己的头像。
 /// </summary>
 public static class AvatarCache
 {
     public const string Magic = "__MFQ_AVATAR__:";
+    public const string MagicReq = "__MFQ_AVATAR_REQ__";
 
     private static readonly string CacheDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -40,16 +42,27 @@ public static class AvatarCache
         return File.Exists(path) ? path : null;
     }
 
+    /// <summary>
+    /// 从文件加载 ImageSource。始终走 MemoryStream，避免同路径覆盖后仍显示旧图。
+    /// </summary>
     public static ImageSource? LoadImage(string peerKey)
     {
         var path = GetPath(peerKey);
-        if (path == null) return null;
+        return LoadImageFromPath(path);
+    }
+
+    public static ImageSource? LoadImageFromPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
         try
         {
+            var bytes = File.ReadAllBytes(path);
+            using var ms = new MemoryStream(bytes);
             var bmp = new BitmapImage();
             bmp.BeginInit();
             bmp.CacheOption = BitmapCacheOption.OnLoad;
-            bmp.UriSource = new Uri(path, UriKind.Absolute);
+            bmp.StreamSource = ms;
+            bmp.DecodePixelWidth = 96;
             bmp.EndInit();
             bmp.Freeze();
             return bmp;
@@ -60,22 +73,38 @@ public static class AvatarCache
         }
     }
 
-    /// <summary>把本机头像压成小 JPEG，用于同步。</summary>
+    /// <summary>
+    /// 中心裁剪为正方形（取短边），再缩放到 maxEdge，输出 JPEG。
+    /// 上传本地头像与同步缩略图共用此逻辑。
+    /// </summary>
     public static byte[]? EncodeThumbnail(string? avatarPath, int maxEdge = 64, int quality = 55)
     {
         if (string.IsNullOrEmpty(avatarPath) || !File.Exists(avatarPath)) return null;
         try
         {
-            var src = new BitmapImage();
-            src.BeginInit();
-            src.CacheOption = BitmapCacheOption.OnLoad;
-            src.UriSource = new Uri(avatarPath, UriKind.Absolute);
-            src.DecodePixelWidth = maxEdge;
-            src.EndInit();
-            src.Freeze();
+            BitmapSource src;
+            using (var fs = File.OpenRead(avatarPath))
+            {
+                var decoder = BitmapDecoder.Create(fs, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                src = decoder.Frames[0];
+            }
+
+            int w = src.PixelWidth;
+            int h = src.PixelHeight;
+            if (w <= 0 || h <= 0) return null;
+
+            // 1:1 中心裁剪
+            int side = Math.Min(w, h);
+            int x = (w - side) / 2;
+            int y = (h - side) / 2;
+            var cropped = new CroppedBitmap(src, new System.Windows.Int32Rect(x, y, side, side));
+
+            // 缩放到 maxEdge
+            double scale = (double)maxEdge / side;
+            var scaled = new TransformedBitmap(cropped, new ScaleTransform(scale, scale));
 
             var encoder = new JpegBitmapEncoder { QualityLevel = quality };
-            encoder.Frames.Add(BitmapFrame.Create(src));
+            encoder.Frames.Add(BitmapFrame.Create(scaled));
             using var ms = new MemoryStream();
             encoder.Save(ms);
             return ms.ToArray();
@@ -84,6 +113,19 @@ public static class AvatarCache
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// 把任意图片裁成 1:1 正方形 JPEG 写到 destPath（用于本地头像落盘）。
+    /// </summary>
+    public static bool SaveSquareJpeg(string sourcePath, string destPath, int maxEdge = 256, int quality = 85)
+    {
+        var bytes = EncodeThumbnail(sourcePath, maxEdge, quality);
+        if (bytes == null || bytes.Length == 0) return false;
+        var dir = Path.GetDirectoryName(destPath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        File.WriteAllBytes(destPath, bytes);
+        return true;
     }
 
     public static string? BuildSyncMessage(string? avatarPath)
@@ -108,4 +150,7 @@ public static class AvatarCache
             return false;
         }
     }
+
+    public static bool IsRequest(string text)
+        => string.Equals(text?.Trim(), MagicReq, StringComparison.Ordinal);
 }
