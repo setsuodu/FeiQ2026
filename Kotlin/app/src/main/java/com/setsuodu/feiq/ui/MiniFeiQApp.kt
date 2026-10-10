@@ -1,6 +1,8 @@
 package com.setsuodu.feiq.ui
 
 import android.content.Context
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
@@ -469,202 +471,231 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
     }
 
     // ========== UI ==========
-    if (chatPeer != null) {
-        val peer = chatPeer!!
-        ensureHistory(peer)
-        unread[peerKey(peer)] = 0
-        ChatScreen(
-            peer = peer,
-            logs = logsFor(peer),
-            onBack = { chatPeer = null },
-            onClearHistory = { clearChat(peer) },
-            onSendText = { text ->
-                val svc = service
-                val t = transport
-                val connected = t?.isConnected == true && svc != null
-                if (svc == null) {
-                    // 完全未启动：中继模式可进本机发件箱，等连上再发
-                    if (modeIndex == 1) {
-                        try {
-                            outbox.enqueue(peerKey(peer), peer.name, peer.hostName, text)
-                            appendLog(peer, "out", text)
-                            appendLog(peer, "sys", "未连接中继，已加入待发队列")
-                        } catch (e: Exception) {
-                            appendLog(peer, "sys", "无法入队: ${e.message}")
+    // 联系人列表 ↔ 聊天：从右滑入 / 向右滑出
+    AnimatedContent(
+        targetState = chatPeer,
+        transitionSpec = {
+            if (targetState != null) {
+                // 进入聊天：从右往左插入
+                (slideInHorizontally(
+                    initialOffsetX = { fullWidth -> fullWidth },
+                    animationSpec = tween(280)
+                ) + fadeIn(animationSpec = tween(200))) togetherWith
+                    (slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> -fullWidth / 4 },
+                        animationSpec = tween(280)
+                    ) + fadeOut(animationSpec = tween(200)))
+            } else {
+                // 返回列表：聊天向右滑出
+                (slideInHorizontally(
+                    initialOffsetX = { fullWidth -> -fullWidth / 4 },
+                    animationSpec = tween(280)
+                ) + fadeIn(animationSpec = tween(200))) togetherWith
+                    (slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> fullWidth },
+                        animationSpec = tween(280)
+                    ) + fadeOut(animationSpec = tween(200)))
+            }.using(SizeTransform(clip = false))
+        },
+        label = "chatNav"
+    ) { peerState ->
+        if (peerState != null) {
+            val peer = peerState
+            ensureHistory(peer)
+            unread[peerKey(peer)] = 0
+            ChatScreen(
+                peer = peer,
+                logs = logsFor(peer),
+                onBack = { chatPeer = null },
+                onClearHistory = { clearChat(peer) },
+                onSendText = { text ->
+                    val svc = service
+                    val t = transport
+                    val connected = t?.isConnected == true && svc != null
+                    if (svc == null) {
+                        // 完全未启动：中继模式可进本机发件箱，等连上再发
+                        if (modeIndex == 1) {
+                            try {
+                                outbox.enqueue(peerKey(peer), peer.name, peer.hostName, text)
+                                appendLog(peer, "out", text)
+                                appendLog(peer, "sys", "未连接中继，已加入待发队列")
+                            } catch (e: Exception) {
+                                appendLog(peer, "sys", "无法入队: ${e.message}")
+                            }
+                        } else {
+                            appendLog(peer, "sys", "未连接，请检查「我的」或网络")
+                        }
+                    } else if (!connected && modeIndex == 1) {
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                outbox.enqueue(peerKey(peer), peer.name, peer.hostName, text)
+                                withContext(Dispatchers.Main) {
+                                    appendLog(peer, "out", text)
+                                    appendLog(peer, "sys", "中继断开，已加入待发队列")
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    appendLog(peer, "sys", "入队失败: ${e.message}")
+                                }
+                            }
                         }
                     } else {
-                        appendLog(peer, "sys", "未连接，请检查「我的」或网络")
-                    }
-                } else if (!connected && modeIndex == 1) {
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            outbox.enqueue(peerKey(peer), peer.name, peer.hostName, text)
-                            withContext(Dispatchers.Main) {
-                                appendLog(peer, "out", text)
-                                appendLog(peer, "sys", "中继断开，已加入待发队列")
-                            }
-                        } catch (e: Exception) {
-                            withContext(Dispatchers.Main) {
-                                appendLog(peer, "sys", "入队失败: ${e.message}")
-                            }
-                        }
-                    }
-                } else {
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            svc.sendText(peer.ip, text)
-                            withContext(Dispatchers.Main) { appendLog(peer, "out", text) }
-                        } catch (e: Exception) {
-                            // WS 发送失败：改入本机队列
-                            if (modeIndex == 1) {
-                                try {
-                                    outbox.enqueue(peerKey(peer), peer.name, peer.hostName, text)
-                                    withContext(Dispatchers.Main) {
-                                        appendLog(peer, "out", text)
-                                        appendLog(peer, "sys", "发送失败已入队，连上后自动补发")
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                svc.sendText(peer.ip, text)
+                                withContext(Dispatchers.Main) { appendLog(peer, "out", text) }
+                            } catch (e: Exception) {
+                                // WS 发送失败：改入本机队列
+                                if (modeIndex == 1) {
+                                    try {
+                                        outbox.enqueue(peerKey(peer), peer.name, peer.hostName, text)
+                                        withContext(Dispatchers.Main) {
+                                            appendLog(peer, "out", text)
+                                            appendLog(peer, "sys", "发送失败已入队，连上后自动补发")
+                                        }
+                                    } catch (e2: Exception) {
+                                        withContext(Dispatchers.Main) {
+                                            appendLog(peer, "sys", "发送失败: ${e.message}")
+                                        }
                                     }
-                                } catch (e2: Exception) {
+                                } else {
                                     withContext(Dispatchers.Main) {
                                         appendLog(peer, "sys", "发送失败: ${e.message}")
                                     }
                                 }
-                            } else {
-                                withContext(Dispatchers.Main) {
-                                    appendLog(peer, "sys", "发送失败: ${e.message}")
-                                }
                             }
                         }
                     }
-                }
-            },
-            onSendFile = { uri ->
-                val svc = service ?: return@ChatScreen
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        val name = queryDisplayName(context, uri) ?: "file"
-                        val tmp = File(context.cacheDir, name)
-                        context.contentResolver.openInputStream(uri)?.use { input ->
-                            FileOutputStream(tmp).use { output -> input.copyTo(output) }
-                        }
-                        activeFilePeer = peer
-                        val kind = detectMsgKind(name)
-                        val prefix = when (kind) {
-                            MsgKind.Image -> "[图片]"
-                            MsgKind.Audio -> "[音乐]"
-                            MsgKind.Video -> "[视频]"
-                            else -> "[文件]"
-                        }
-                        val storeBody = "$prefix $name|${tmp.absolutePath}"
-                        val ts0 = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-                        withContext(Dispatchers.Main) {
-                            // 只插一条富媒体气泡，progress=0 叠在上面
-                            val list = logsFor(peer)
-                            val bubble = parseStoredBody("out", storeBody, ts0).copy(progress = 0f)
-                            list.add(bubble)
-                            try { chatStore.add(peerKey(peer), peer.name, "out", storeBody) } catch (_: Exception) { }
-                        }
-                        svc.sendFile(peer.ip, tmp.absolutePath)
-                        withContext(Dispatchers.Main) {
-                            // 发送结束：同一条气泡去掉进度条
-                            val list = logsFor(peer)
-                            val idx = list.indexOfLast {
-                                it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
-                                        (it.body.contains(name) || it.filePath?.endsWith(name) == true)
+                },
+                onSendFile = { uri ->
+                    val svc = service ?: return@ChatScreen
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val name = queryDisplayName(context, uri) ?: "file"
+                            val tmp = File(context.cacheDir, name)
+                            context.contentResolver.openInputStream(uri)?.use { input ->
+                                FileOutputStream(tmp).use { output -> input.copyTo(output) }
                             }
-                            if (idx >= 0) list[idx] = list[idx].copy(progress = null)
-                        }
-                    } catch (e: Exception) {
-                        withContext(Dispatchers.Main) {
-                            appendLog(peer, "sys", "发文件失败: ${e.message}")
+                            activeFilePeer = peer
+                            val kind = detectMsgKind(name)
+                            val prefix = when (kind) {
+                                MsgKind.Image -> "[图片]"
+                                MsgKind.Audio -> "[音乐]"
+                                MsgKind.Video -> "[视频]"
+                                else -> "[文件]"
+                            }
+                            val storeBody = "$prefix $name|${tmp.absolutePath}"
+                            val ts0 = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                            withContext(Dispatchers.Main) {
+                                // 只插一条富媒体气泡，progress=0 叠在上面
+                                val list = logsFor(peer)
+                                val bubble = parseStoredBody("out", storeBody, ts0).copy(progress = 0f)
+                                list.add(bubble)
+                                try { chatStore.add(peerKey(peer), peer.name, "out", storeBody) } catch (_: Exception) { }
+                            }
+                            svc.sendFile(peer.ip, tmp.absolutePath)
+                            withContext(Dispatchers.Main) {
+                                // 发送结束：同一条气泡去掉进度条
+                                val list = logsFor(peer)
+                                val idx = list.indexOfLast {
+                                    it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
+                                            (it.body.contains(name) || it.filePath?.endsWith(name) == true)
+                                }
+                                if (idx >= 0) list[idx] = list[idx].copy(progress = null)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                appendLog(peer, "sys", "发文件失败: ${e.message}")
+                            }
                         }
                     }
+                },
+                selfAvatarPath = avatarPath
+            )
+        } else {
+            Scaffold(
+                bottomBar = {
+                    NavigationBar(containerColor = Color.White) {
+                        NavigationBarItem(
+                            selected = tab == 0,
+                            onClick = { tab = 0 },
+                            icon = { Icon(Icons.Default.Chat, contentDescription = "聊天") },
+                            label = { Text("聊天") }
+                        )
+                        NavigationBarItem(
+                            selected = tab == 1,
+                            onClick = { tab = 1 },
+                            icon = { Icon(Icons.Default.Person, contentDescription = "我的") },
+                            label = { Text("我的") }
+                        )
+                    }
                 }
-            },
-            selfAvatarPath = avatarPath
-        )
-    } else {
-        Scaffold(
-            bottomBar = {
-                NavigationBar(containerColor = Color.White) {
-                    NavigationBarItem(
-                        selected = tab == 0,
-                        onClick = { tab = 0 },
-                        icon = { Icon(Icons.Default.Chat, contentDescription = "聊天") },
-                        label = { Text("聊天") }
-                    )
-                    NavigationBarItem(
-                        selected = tab == 1,
-                        onClick = { tab = 1 },
-                        icon = { Icon(Icons.Default.Person, contentDescription = "我的") },
-                        label = { Text("我的") }
-                    )
-                }
-            }
-        ) { padding ->
-            Box(Modifier.padding(padding).fillMaxSize()) {
-                when (tab) {
-                    0 -> ChatListScreen(
-                        sessions = sessions.toList(),
-                        onlineKeys = onlineKeys(),
-                        unread = unread,
-                        status = status,
-                        statusColor = statusColor,
-                        modeIndex = modeIndex,
-                        avatarTick = avatarTick,
-                        onModeChange = { modeIndex = it },
-                        onOpenChat = { p ->
-                            // 若在线有同 key，优先用在线 Peer（真实 IP）
-                            val live = users.firstOrNull { peerKey(it) == peerKey(p) } ?: p
-                            ensureHistory(live)
-                            unread[peerKey(live)] = 0
-                            chatPeer = live
-                            // 本地无对方头像时请求一次（低频）
-                            val key = peerKey(live)
-                            if (AvatarCache.getPath(context, key) == null) {
-                                scope.launch(Dispatchers.IO) {
-                                    try {
-                                        service?.sendText(live.ip, AvatarCache.MAGIC_REQ, requireAck = false)
-                                    } catch (_: Exception) { }
-                                }
-                            }
-                        },
-                        onRefresh = {
-                            scope.launch(Dispatchers.IO) {
-                                try { service?.announceOnline() } catch (_: Exception) { }
-                            }
-                        }
-                    )
-                    else -> MeScreen(
-                        userName = userName,
-                        avatarPath = avatarPath,
-                        serverUrl = serverUrl,
-                        modeIndex = modeIndex,
-                        status = status,
-                        statusColor = statusColor,
-                        onSave = { name, url, avatar ->
-                            userName = name
-                            serverUrl = url
-                            avatarPath = avatar
-                            settings.userName = name
-                            settings.serverUrl = url
-                            settings.avatarPath = avatar
-                            // 头像变更后推给所有在线 FeiQ2026
-                            val msg = AvatarCache.buildSyncMessage(avatar)
-                            if (msg != null) {
-                                val svc = service
-                                val snapshot = users.toList()
-                                if (svc != null) {
+            ) { padding ->
+                Box(Modifier.padding(padding).fillMaxSize()) {
+                    when (tab) {
+                        0 -> ChatListScreen(
+                            sessions = sessions.toList(),
+                            onlineKeys = onlineKeys(),
+                            unread = unread,
+                            status = status,
+                            statusColor = statusColor,
+                            modeIndex = modeIndex,
+                            avatarTick = avatarTick,
+                            onModeChange = { modeIndex = it },
+                            onOpenChat = { p ->
+                                // 若在线有同 key，优先用在线 Peer（真实 IP）
+                                val live = users.firstOrNull { peerKey(it) == peerKey(p) } ?: p
+                                ensureHistory(live)
+                                unread[peerKey(live)] = 0
+                                chatPeer = live
+                                // 本地无对方头像时请求一次（低频）
+                                val key = peerKey(live)
+                                if (AvatarCache.getPath(context, key) == null) {
                                     scope.launch(Dispatchers.IO) {
-                                        for (p in snapshot) {
-                                            try { svc.sendText(p.ip, msg, requireAck = false) } catch (_: Exception) { }
+                                        try {
+                                            service?.sendText(live.ip, AvatarCache.MAGIC_REQ, requireAck = false)
+                                        } catch (_: Exception) { }
+                                    }
+                                }
+                            },
+                            onRefresh = {
+                                scope.launch(Dispatchers.IO) {
+                                    try { service?.announceOnline() } catch (_: Exception) { }
+                                }
+                            }
+                        )
+                        else -> MeScreen(
+                            userName = userName,
+                            avatarPath = avatarPath,
+                            serverUrl = serverUrl,
+                            modeIndex = modeIndex,
+                            status = status,
+                            statusColor = statusColor,
+                            onSave = { name, url, avatar ->
+                                userName = name
+                                serverUrl = url
+                                avatarPath = avatar
+                                settings.userName = name
+                                settings.serverUrl = url
+                                settings.avatarPath = avatar
+                                // 头像变更后推给所有在线 FeiQ2026
+                                val msg = AvatarCache.buildSyncMessage(avatar)
+                                if (msg != null) {
+                                    val svc = service
+                                    val snapshot = users.toList()
+                                    if (svc != null) {
+                                        scope.launch(Dispatchers.IO) {
+                                            for (p in snapshot) {
+                                                try { svc.sendText(p.ip, msg, requireAck = false) } catch (_: Exception) { }
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            startService()
-                        },
-                        onModeChange = { modeIndex = it }
-                    )
+                                startService()
+                            },
+                            onModeChange = { modeIndex = it }
+                        )
+                    }
                 }
             }
         }
