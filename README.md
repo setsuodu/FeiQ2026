@@ -22,7 +22,7 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 - [x] APK 更换包名：com.setsuodu.feiq
 - [x] NAT 走 TCP应用+自动https。客户端全换：wss://s0.v100.vip:27658/ws
 - [x] WPF Velopack
-- [ ] 传输加密（TLS）
+- [x] 传输加密（TLS）wss
 - [ ] 长按语音发送
 - [ ] 实时童话、会议（WebRTC）
 - [ ] 图片压缩（大图走文件通道）

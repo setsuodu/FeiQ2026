@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 namespace RelayService;
 
 /// <summary>
-/// SQLite 离线消息队列（内部小规模）。
+/// SQLite 离线消息队列 + 轻量安全连接记录。
 /// 当前中继是「广播网状」：在线全员收包；离线用户按 clientId 存一份，上线后补发。
 /// </summary>
 public sealed class OfflineStore : IDisposable
@@ -15,6 +15,7 @@ public sealed class OfflineStore : IDisposable
     public int MaxPerClient { get; init; } = 500;
     public int MaxPayloadBytes { get; init; } = 1_048_576; // 1MB，更大的文件帧跳过落库
     public TimeSpan Ttl { get; init; } = TimeSpan.FromDays(7);
+    public int MaxConnectionLogs { get; init; } = 2000; // 连接历史保留条数
 
     public OfflineStore(string dbPath)
     {
@@ -39,7 +40,10 @@ public sealed class OfflineStore : IDisposable
             """
             CREATE TABLE IF NOT EXISTS known_clients (
                 client_id TEXT PRIMARY KEY,
-                last_seen INTEGER NOT NULL
+                last_seen INTEGER NOT NULL,
+                last_ip TEXT,
+                last_ua TEXT,
+                connect_count INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS offline_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,11 +54,42 @@ public sealed class OfflineStore : IDisposable
             );
             CREATE INDEX IF NOT EXISTS idx_offline_to
                 ON offline_messages(to_client_id, id);
+
+            -- 连接/安全事件日志（轻量）
+            CREATE TABLE IF NOT EXISTS connection_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                event TEXT NOT NULL,          -- connect / disconnect / kick / reject
+                client_id TEXT,
+                ip TEXT,
+                ua TEXT,
+                detail TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_conn_ts ON connection_logs(ts DESC);
             """;
         cmd.ExecuteNonQuery();
+
+        // 兼容旧库：补列
+        TryAddColumn("known_clients", "last_ip", "TEXT");
+        TryAddColumn("known_clients", "last_ua", "TEXT");
+        TryAddColumn("known_clients", "connect_count", "INTEGER NOT NULL DEFAULT 0");
     }
 
-    public void TouchClient(string clientId)
+    private void TryAddColumn(string table, string column, string type)
+    {
+        try
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {type}";
+            cmd.ExecuteNonQuery();
+        }
+        catch
+        {
+            // 列已存在则忽略
+        }
+    }
+
+    public void TouchClient(string clientId, string? ip = null, string? ua = null)
     {
         if (string.IsNullOrWhiteSpace(clientId)) return;
         lock (_lock)
@@ -62,12 +97,115 @@ public sealed class OfflineStore : IDisposable
             using var cmd = _conn.CreateCommand();
             cmd.CommandText =
                 """
-                INSERT INTO known_clients(client_id, last_seen) VALUES($id, $t)
-                ON CONFLICT(client_id) DO UPDATE SET last_seen = $t
+                INSERT INTO known_clients(client_id, last_seen, last_ip, last_ua, connect_count)
+                VALUES($id, $t, $ip, $ua, 1)
+                ON CONFLICT(client_id) DO UPDATE SET
+                    last_seen = $t,
+                    last_ip = COALESCE($ip, last_ip),
+                    last_ua = COALESCE($ua, last_ua),
+                    connect_count = connect_count + 1
                 """;
             cmd.Parameters.AddWithValue("$id", clientId);
             cmd.Parameters.AddWithValue("$t", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            cmd.Parameters.AddWithValue("$ip", (object?)ip ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ua", (object?)ua ?? DBNull.Value);
             cmd.ExecuteNonQuery();
+        }
+    }
+
+    public void LogConnection(string eventType, string? clientId, string? ip, string? ua, string? detail = null)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO connection_logs(ts, event, client_id, ip, ua, detail)
+                VALUES($ts, $e, $cid, $ip, $ua, $d)
+                """;
+            cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            cmd.Parameters.AddWithValue("$e", eventType);
+            cmd.Parameters.AddWithValue("$cid", (object?)clientId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ip", (object?)ip ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ua", (object?)ua ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$d", (object?)detail ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+
+            // 简单滚动清理，防止无限增长
+            using var cnt = _conn.CreateCommand();
+            cnt.CommandText = "SELECT COUNT(*) FROM connection_logs";
+            var total = Convert.ToInt32(cnt.ExecuteScalar());
+            if (total > MaxConnectionLogs)
+            {
+                using var del = _conn.CreateCommand();
+                del.CommandText =
+                    """
+                    DELETE FROM connection_logs WHERE id IN (
+                        SELECT id FROM connection_logs ORDER BY id ASC LIMIT $n
+                    )
+                    """;
+                del.Parameters.AddWithValue("$n", total - MaxConnectionLogs);
+                del.ExecuteNonQuery();
+            }
+        }
+    }
+
+    public List<object> RecentConnections(int limit = 50)
+    {
+        lock (_lock)
+        {
+            var list = new List<object>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT ts, event, client_id, ip, ua, detail
+                FROM connection_logs
+                ORDER BY id DESC
+                LIMIT $n
+                """;
+            cmd.Parameters.AddWithValue("$n", limit);
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                list.Add(new
+                {
+                    ts = DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(0)).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                    eventType = r.GetString(1),
+                    clientId = r.IsDBNull(2) ? null : r.GetString(2),
+                    ip = r.IsDBNull(3) ? null : r.GetString(3),
+                    ua = r.IsDBNull(4) ? null : r.GetString(4),
+                    detail = r.IsDBNull(5) ? null : r.GetString(5)
+                });
+            }
+            return list;
+        }
+    }
+
+    public List<object> KnownClientsSummary()
+    {
+        lock (_lock)
+        {
+            var list = new List<object>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT client_id, last_seen, last_ip, last_ua, connect_count
+                FROM known_clients
+                ORDER BY last_seen DESC
+                """;
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                list.Add(new
+                {
+                    clientId = r.GetString(0),
+                    lastSeen = DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(1)).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                    lastIp = r.IsDBNull(2) ? null : r.GetString(2),
+                    lastUa = r.IsDBNull(3) ? null : r.GetString(3),
+                    connectCount = r.IsDBNull(4) ? 0 : r.GetInt32(4)
+                });
+            }
+            return list;
         }
     }
 

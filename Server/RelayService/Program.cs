@@ -1,12 +1,20 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Net.WebSockets;
 using RelayService;
 
 // ============================================================
-// MiniFeiQ WebSocket 中继服务器（含 SQLite 离线消息）
+// FeiQ 2026 WebSocket 中继服务器（含 SQLite 离线消息 + 安全连接日志）
 // 用法: dotnet run -- --port 9000
 // 数据目录: 环境变量 RELAY_DATA_DIR，默认 ./data
 // Docker: 暴露 9000，挂载 /app/data
+//
+// 安全日志增强：
+//   - 记录真实客户端 IP（支持反代 X-Forwarded-For / X-Real-IP）
+//   - 记录 User-Agent
+//   - 连接/断开/顶号 事件写入 SQLite connection_logs
+//   - known_clients 记录 last_ip / last_ua / connect_count
+//   - /stats 返回在线列表 + 最近连接历史 + 已知用户摘要
 // ============================================================
 
 var port = 9000;
@@ -27,7 +35,19 @@ var clients = new ConcurrentDictionary<string, ClientSession>();
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+
+// 信任反代头（家用常见 Nginx / Caddy / FRP 等）
+builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                             | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
+    // 家用部署通常信任所有，生产可再收紧 KnownProxies / KnownNetworks
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 var app = builder.Build();
+app.UseForwardedHeaders();
 
 app.UseWebSockets(new WebSocketOptions
 {
@@ -63,21 +83,28 @@ app.Map("/ws", async context =>
                    ?? context.Request.Query["clientId"].FirstOrDefault()
                    ?? Guid.NewGuid().ToString("N")[..8];
 
+    var ip = GetClientIp(context);
+    var ua = context.Request.Headers.UserAgent.ToString();
+    if (string.IsNullOrWhiteSpace(ua)) ua = "(none)";
+
     var ws = await context.WebSockets.AcceptWebSocketAsync();
-    var session = new ClientSession(clientId, ws);
+    var session = new ClientSession(clientId, ws, ip, ua);
 
     // 同 clientId 重连：踢掉旧连接
     if (clients.TryGetValue(clientId, out var old))
     {
         clients.TryRemove(clientId, out _);
         try { old.Socket.Abort(); } catch { }
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ~ 顶号  {clientId}");
+        var kickMsg = $"旧连接被顶 (oldIp={old.Ip})";
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ~ 顶号  {clientId}  ip={ip}  {kickMsg}");
+        offlineStore.LogConnection("kick", clientId, ip, ua, kickMsg);
     }
 
     clients[clientId] = session;
-    offlineStore.TouchClient(clientId);
+    offlineStore.TouchClient(clientId, ip, ua);
+    offlineStore.LogConnection("connect", clientId, ip, ua, $"online={clients.Count}");
 
-    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] + 上线  {clientId}  当前在线: {clients.Count}");
+    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] + 上线  {clientId}  ip={ip}  ua={Truncate(ua, 80)}  当前在线: {clients.Count}");
 
     // 补发离线队列
     try
@@ -106,10 +133,11 @@ app.Map("/ws", async context =>
     {
         clients.TryRemove(clientId, out _);
         offlineStore.TouchClient(clientId); // 保留 known，便于下次离线堆积
+        offlineStore.LogConnection("disconnect", clientId, ip, ua, $"online={clients.Count}");
         try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None); }
         catch { }
         ws.Dispose();
-        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] - 下线  {clientId}  当前在线: {clients.Count}");
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] - 下线  {clientId}  ip={ip}  当前在线: {clients.Count}");
     }
 });
 
@@ -121,7 +149,8 @@ app.MapGet("/", () =>
         $"Online: {clients.Count}\n" +
         $"Offline queue: {msgCount} msgs / {offlineUsers} users\n" +
         $"WS endpoint: /ws\n" +
-        $"DB: {dbPath}\n",
+        $"DB: {dbPath}\n" +
+        $"Security: connection_logs + known_clients IP/UA tracking enabled\n",
         "text/plain");
 });
 
@@ -131,17 +160,59 @@ app.MapGet("/stats", () =>
     return Results.Json(new
     {
         online = clients.Count,
-        onlineIds = clients.Keys.OrderBy(x => x).ToArray(),
+        onlineClients = clients.Values
+            .OrderBy(c => c.Id)
+            .Select(c => new
+            {
+                clientId = c.Id,
+                ip = c.Ip,
+                ua = c.Ua,
+                connectedAt = c.ConnectedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+            })
+            .ToArray(),
         offlineMessages = msgCount,
         offlineUsers,
+        knownClients = offlineStore.KnownClientsSummary(),
+        recentConnections = offlineStore.RecentConnections(80),
         dbPath
     });
 });
 
+// 简单健康检查
+app.MapGet("/health", () => Results.Ok(new { status = "ok", online = clients.Count }));
+
 Console.WriteLine($"FeiQ 2026 Relay 已启动  ws://0.0.0.0:{port}/ws");
-Console.WriteLine($"离线库: {dbPath}");
+Console.WriteLine($"离线库 + 安全日志: {dbPath}");
 Console.WriteLine("按 Ctrl+C 退出");
 app.Run();
+
+// ---------- 工具方法 ----------
+static string GetClientIp(HttpContext context)
+{
+    // 1. 优先 X-Forwarded-For（取最左边第一个非空）
+    var xff = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrWhiteSpace(xff))
+    {
+        var first = xff.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                       .FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(first))
+            return first;
+    }
+
+    // 2. X-Real-IP
+    var xri = context.Request.Headers["X-Real-IP"].FirstOrDefault();
+    if (!string.IsNullOrWhiteSpace(xri))
+        return xri.Trim();
+
+    // 3. 直连
+    return context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+}
+
+static string Truncate(string s, int max)
+{
+    if (string.IsNullOrEmpty(s) || s.Length <= max) return s;
+    return s[..max] + "…";
+}
 
 // ---------- 转发 + 离线落库 ----------
 static async Task ReceiveLoop(
@@ -225,11 +296,16 @@ sealed class ClientSession
 {
     public string Id { get; }
     public WebSocket Socket { get; }
+    public string Ip { get; }
+    public string Ua { get; }
+    public DateTimeOffset ConnectedAt { get; } = DateTimeOffset.UtcNow;
     public SemaphoreSlim SendLock { get; } = new(1, 1);
 
-    public ClientSession(string id, WebSocket socket)
+    public ClientSession(string id, WebSocket socket, string ip, string ua)
     {
         Id = id;
         Socket = socket;
+        Ip = ip;
+        Ua = ua;
     }
 }
