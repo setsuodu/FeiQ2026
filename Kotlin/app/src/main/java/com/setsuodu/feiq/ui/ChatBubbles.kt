@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import java.io.File
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ChatBubbleRow(
     peerName: String,
@@ -109,6 +111,7 @@ private fun copyTextToClipboard(context: Context, text: String) {
     Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun BubbleContent(msg: ChatUiMsg, context: Context) {
     val openFile: () -> Unit = openFile@{
