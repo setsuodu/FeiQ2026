@@ -159,11 +159,6 @@ internal fun BubbleContent(msg: ChatUiMsg, context: Context) {
         } catch (_: Exception) { }
     }
 
-    val textLongPressModifier = Modifier.combinedClickable(
-        onClick = {},
-        onLongClick = { copyTextToClipboard(context, msg.body) }
-    )
-
     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
         // 富媒体本体
         when {
@@ -214,16 +209,20 @@ internal fun BubbleContent(msg: ChatUiMsg, context: Context) {
                     text = msg.body,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF12B7F5),
-                    modifier = Modifier
-                        .clickable { openFile() }
-                        .then(textLongPressModifier)
+                    modifier = Modifier.combinedClickable(
+                        onClick = { openFile() },
+                        onLongClick = { copyTextToClipboard(context, msg.body) }
+                    )
                 )
             }
             else -> {
                 EmojiText(
                     text = msg.body,
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = textLongPressModifier
+                    modifier = Modifier.combinedClickable(
+                        onClick = {},
+                        onLongClick = { copyTextToClipboard(context, msg.body) }
+                    )
                 )
             }
         }
