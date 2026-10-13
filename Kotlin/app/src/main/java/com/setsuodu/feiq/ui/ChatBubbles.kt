@@ -1,12 +1,16 @@
 package com.setsuodu.feiq.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
@@ -41,6 +45,10 @@ internal fun ChatBubbleRow(
                     modifier = Modifier
                         .background(Color(0x22000000), shape = MaterialTheme.shapes.small)
                         .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { copyTextToClipboard(context, msg.body) }
+                        )
                 )
             }
         }
@@ -94,6 +102,13 @@ internal fun ChatBubbleRow(
     }
 }
 
+private fun copyTextToClipboard(context: Context, text: String) {
+    if (text.isBlank()) return
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText("feiq_msg", text))
+    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+}
+
 @Composable
 internal fun BubbleContent(msg: ChatUiMsg, context: Context) {
     val openFile: () -> Unit = openFile@{
@@ -143,6 +158,11 @@ internal fun BubbleContent(msg: ChatUiMsg, context: Context) {
             )
         } catch (_: Exception) { }
     }
+
+    val textLongPressModifier = Modifier.combinedClickable(
+        onClick = {},
+        onLongClick = { copyTextToClipboard(context, msg.body) }
+    )
 
     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
         // 富媒体本体
@@ -194,13 +214,16 @@ internal fun BubbleContent(msg: ChatUiMsg, context: Context) {
                     text = msg.body,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF12B7F5),
-                    modifier = Modifier.clickable { openFile() }
+                    modifier = Modifier
+                        .clickable { openFile() }
+                        .then(textLongPressModifier)
                 )
             }
             else -> {
                 EmojiText(
                     text = msg.body,
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = textLongPressModifier
                 )
             }
         }
