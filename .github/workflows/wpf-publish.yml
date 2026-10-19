@@ -118,7 +118,7 @@ jobs:
             releases/releases.win.json
           fail_on_unmatched_files: false
           generate_release_notes: true
-          name: FeiQ 2026 WPF ${{ steps.ver.outputs.version }}
+          name: WPF ${{ steps.ver.outputs.version }}
           body: |
             ## FeiQ 2026 WPF ${{ steps.ver.outputs.version }}
 

@@ -111,7 +111,7 @@ jobs:
         with:
           files: Kotlin/app/build/outputs/apk/**/*.apk
           generate_release_notes: true
-          name: Android Release ${{ github.ref_name }}
+          name: Android ${{ steps.ver.outputs.version_name }}
           body: |
             ## FeiQ2026 Android ${{ steps.ver.outputs.version_name }}
             - versionName: `${{ steps.ver.outputs.version_name }}`
