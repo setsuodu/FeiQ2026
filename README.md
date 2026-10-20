@@ -23,7 +23,7 @@ Kotlin 客户端|Android|另一端，同样走抽象传输层|必须
 - [x] NAT 走 TCP应用+自动https。
 - [x] WPF Velopack
 - [x] 传输加密（TLS）wss
-- [ ] 长按语音发送
+- [x] 长按语音发送
 - [ ] 实时通话、会议（WebRTC）
 - [ ] 群组广播消息
 - [ ] macOS/Linux 客户端

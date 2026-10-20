@@ -610,6 +610,39 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                         }
                     }
                 },
+                onSendVoiceFile = { voiceFile ->
+                    val svc = service
+                    if (svc == null) {
+                        appendLog(peer, "sys", "未连接，无法发送语音")
+                        return@ChatScreen
+                    }
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val name = voiceFile.name
+                            activeFilePeer = peer
+                            val storeBody = "[音乐] $name|${voiceFile.absolutePath}"
+                            val ts0 = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                            withContext(Dispatchers.Main) {
+                                val list = logsFor(peer)
+                                list.add(parseStoredBody("out", storeBody, ts0).copy(progress = 0f))
+                                try { chatStore.add(peerKey(peer), peer.name, "out", storeBody) } catch (_: Exception) { }
+                            }
+                            svc.sendFile(peer.ip, voiceFile.absolutePath)
+                            withContext(Dispatchers.Main) {
+                                val list = logsFor(peer)
+                                val idx = list.indexOfLast {
+                                    it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
+                                            (it.body.contains(name) || it.filePath?.endsWith(name) == true)
+                                }
+                                if (idx >= 0) list[idx] = list[idx].copy(progress = null)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                appendLog(peer, "sys", "发语音失败: ${e.message}")
+                            }
+                        }
+                    }
+                },
                 selfAvatarPath = avatarPath
             )
         } else {

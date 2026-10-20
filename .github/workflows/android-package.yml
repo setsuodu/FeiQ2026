@@ -6,6 +6,9 @@ on:
       - 'android/v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -95,13 +98,23 @@ jobs:
           echo "=== APK files ==="
           find . -name "*.apk" -type f
 
+      - name: Find APK
+        if: steps.check.outputs.exists == 'true'
+        id: apk
+        shell: bash
+        run: |
+          APK=$(find Kotlin/app/build/outputs/apk -name "*release*.apk" -type f | head -n 1)
+          [ -z "$APK" ] && APK=$(find Kotlin/app/build/outputs/apk -name "*.apk" -type f | head -n 1)
+          [ -z "$APK" ] && { echo "No APK found"; exit 1; }
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          ls -lh "$APK"
+
       - name: Upload APK artifact
         if: steps.check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: FeiQ2026-Android-${{ steps.ver.outputs.version_name }}
-          path: |
-            Kotlin/app/build/outputs/apk/**/*.apk
+          path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
           retention-days: 14
 
@@ -109,12 +122,53 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/android/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: Kotlin/app/build/outputs/apk/**/*.apk
+          files: ${{ steps.apk.outputs.path }}
           generate_release_notes: true
-          name: Android ${{ steps.ver.outputs.version_name }}
+          name: Android Release ${{ github.ref_name }}
           body: |
             ## FeiQ2026 Android ${{ steps.ver.outputs.version_name }}
             - versionName: `${{ steps.ver.outputs.version_name }}`
             - versionCode: `${{ steps.ver.outputs.version_code }}`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 推送到 Fenfa（与 webview_kt 一致）──────────────────────────────
+      - name: Upload to Fenfa
+        if: steps.check.outputs.exists == 'true'
+        env:
+          FENFA_UPLOAD_URL: ${{ secrets.FENFA_UPLOAD_URL }}
+          FENFA_UPLOAD_TOKEN: ${{ secrets.FENFA_UPLOAD_TOKEN }}
+          FENFA_VARIANT_ID: ${{ secrets.FENFA_VARIANT_ID }}
+        run: |
+          set -e
+
+          if [ -z "$FENFA_UPLOAD_URL" ] || [ -z "$FENFA_UPLOAD_TOKEN" ] || [ -z "$FENFA_VARIANT_ID" ]; then
+            echo "⚠️ Fenfa secrets 未配置，跳过上传"
+            exit 0
+          fi
+
+          APK="${{ steps.apk.outputs.path }}"
+          VERSION="${{ steps.ver.outputs.version_name }}"
+          CHANGELOG="FeiQ2026 Android ${{ github.ref_name }}"
+
+          echo "Uploading $APK (version=$VERSION) to Fenfa..."
+
+          RESP=$(curl -s -w "\n%{http_code}" -X POST "$FENFA_UPLOAD_URL" \
+            -H "X-Auth-Token: $FENFA_UPLOAD_TOKEN" \
+            -F "variant_id=$FENFA_VARIANT_ID" \
+            -F "app_file=@$APK" \
+            -F "version=$VERSION" \
+            -F "changelog=$CHANGELOG")
+
+          HTTP_CODE=$(echo "$RESP" | tail -n1)
+          BODY=$(echo "$RESP" | sed '$d')
+
+          echo "HTTP $HTTP_CODE"
+          echo "$BODY"
+
+          if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Fenfa upload failed"
+            exit 1
+          fi
+
+          echo "✅ Uploaded to Fenfa"
