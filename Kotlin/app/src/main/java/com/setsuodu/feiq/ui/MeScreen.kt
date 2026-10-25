@@ -41,14 +41,8 @@ internal fun MeScreen(
     var avatar by remember(avatarPath) { mutableStateOf(avatarPath) }
     var savedTip by remember { mutableStateOf(false) }
 
-    val appVersion = remember {
-        try {
-            @Suppress("DEPRECATION")
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
-        } catch (_: Exception) {
-            "?"
-        }
-    }
+    // 编译期写入，与 CI 注入的 versionName 一致；勿再用 PackageManager+remember（易显示旧值/异常）
+    val appVersion = com.setsuodu.feiq.BuildConfig.VERSION_NAME
 
     val pickAvatar = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()

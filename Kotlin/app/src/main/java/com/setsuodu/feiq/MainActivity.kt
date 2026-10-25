@@ -9,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -19,7 +18,6 @@ import com.setsuodu.feiq.ui.MiniFeiQApp
 
 class MainActivity : ComponentActivity() {
 
-    // Android 13+：不申请就收不到前台服务等系统通知
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -31,10 +29,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    Box(Modifier.fillMaxSize()) {
-                        MiniFeiQApp(context = this@MainActivity)
-                        SharePeerPickerDialog()
-                    }
+                    MiniFeiQApp(context = this@MainActivity)
                 }
             }
         }

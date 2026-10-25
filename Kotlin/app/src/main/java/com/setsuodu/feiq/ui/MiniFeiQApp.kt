@@ -16,7 +16,8 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.setsuodu.feiq.ShareBridge
+import com.setsuodu.feiq.ShareInbox
+import com.setsuodu.feiq.SharePeerPickerDialog
 import com.setsuodu.feiq.shareSendFile
 import com.setsuodu.feiq.data.AppSettings
 import com.setsuodu.feiq.data.AvatarCache
@@ -426,48 +427,49 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
         onDispose { stopService() }
     }
 
-    // 系统分享：选人 = 会话列表（在线∪最近）；发送时优先用在线同 key Peer
-    SideEffect {
-        val online = onlineKeys()
-        val shareList = sessions.toList().sortedByDescending { peerKey(it) in online }
-        ShareBridge.updatePeers(shareList)
-        ShareBridge.sendToPeer = { peer, uri ->
-            val live = users.firstOrNull { peerKey(it) == peerKey(peer) } ?: peer
-            shareSendFile(
-                scope = scope,
-                context = context,
-                service = service,
-                peer = live,
-                uri = uri,
-                onPrepared = { name, path ->
-                    activeFilePeer = live
-                    ensureHistory(live)
-                    chatPeer = live
-                    val kind = detectMsgKind(name)
-                    val prefix = when (kind) {
-                        MsgKind.Image -> "[图片]"
-                        MsgKind.Audio -> "[音乐]"
-                        MsgKind.Video -> "[视频]"
-                        else -> "[文件]"
-                    }
-                    val storeBody = "$prefix $name|$path"
-                    val ts0 = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                        .format(Date())
-                    val list = logsFor(live)
-                    list.add(parseStoredBody("out", storeBody, ts0).copy(progress = 0f))
-                    try { chatStore.add(peerKey(live), live.name, "out", storeBody) } catch (_: Exception) { }
-                },
-                onDone = { name ->
-                    val list = logsFor(live)
-                    val idx = list.indexOfLast {
-                        it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
-                                (it.body.contains(name) || it.filePath?.endsWith(name) == true)
-                    }
-                    if (idx >= 0) list[idx] = list[idx].copy(progress = null)
-                },
-                onError = { msg -> appendLog(live, "sys", msg) }
-            )
+    // 系统分享进来：强制切到 WebSocket 中继（不走 UDP）
+    LaunchedEffect(ShareInbox.pending.size) {
+        if (ShareInbox.pending.isNotEmpty() && modeIndex != 1) {
+            modeIndex = 1
         }
+    }
+
+    fun shareSendToPeer(peer: Peer, uri: android.net.Uri) {
+        val live = users.firstOrNull { peerKey(it) == peerKey(peer) } ?: peer
+        shareSendFile(
+            scope = scope,
+            context = context,
+            service = service,
+            peer = live,
+            uri = uri,
+            onPrepared = { name, path ->
+                activeFilePeer = live
+                ensureHistory(live)
+                chatPeer = live
+                val kind = detectMsgKind(name)
+                val prefix = when (kind) {
+                    MsgKind.Image -> "[图片]"
+                    MsgKind.Audio -> "[音乐]"
+                    MsgKind.Video -> "[视频]"
+                    else -> "[文件]"
+                }
+                val storeBody = "$prefix $name|$path"
+                val ts0 = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                    .format(Date())
+                val list = logsFor(live)
+                list.add(parseStoredBody("out", storeBody, ts0).copy(progress = 0f))
+                try { chatStore.add(peerKey(live), live.name, "out", storeBody) } catch (_: Exception) { }
+            },
+            onDone = { name ->
+                val list = logsFor(live)
+                val idx = list.indexOfLast {
+                    it.kind != MsgKind.Text && it.kind != MsgKind.Url &&
+                            (it.body.contains(name) || it.filePath?.endsWith(name) == true)
+                }
+                if (idx >= 0) list[idx] = list[idx].copy(progress = null)
+            },
+            onError = { msg -> appendLog(live, "sys", msg) }
+        )
     }
 
     // ========== UI ==========
@@ -732,6 +734,18 @@ fun MiniFeiQApp(context: Context = LocalContext.current) {
                 }
             }
         }
+    }
+
+
+    // 系统分享选人：直接用 sessions，与聊天列表同源
+    run {
+        val online = onlineKeys()
+        val sharePeers = sessions.toList().sortedByDescending { peerKey(it) in online }
+        SharePeerPickerDialog(
+            peers = sharePeers,
+            onSend = { peer, uri -> shareSendToPeer(peer, uri) },
+            onDismiss = { ShareInbox.clear() },
+        )
     }
 
     // 普通文件接收确认（媒体已自动接收）

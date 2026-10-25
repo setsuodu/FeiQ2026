@@ -15,37 +15,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.snapshots.SnapshotStateList
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.setsuodu.feiq.service.Peer
 
 /**
- * MiniFeiQApp 把在线列表写进 [peerList]；分享弹窗直接订阅。
- * Peer.ip 是 InetAddress，key 用 hostAddress，不要对 ip 做字符串 +。
+ * 系统分享选人弹窗。
+ * peers 必须由 MiniFeiQApp 传入 sessions（在线∪历史），不要再经旁路同步。
  */
-object ShareBridge {
-    val peerList: SnapshotStateList<Peer> = mutableStateListOf()
-    var sendToPeer: (Peer, Uri) -> Unit = { _, _ -> }
-
-    fun updatePeers(list: List<Peer>) {
-        peerList.clear()
-        peerList.addAll(list)
-    }
-}
-
 @Composable
-fun SharePeerPickerDialog() {
+fun SharePeerPickerDialog(
+    peers: List<Peer>,
+    onSend: (Peer, Uri) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val pending = ShareInbox.pending
     if (pending.isEmpty()) return
 
-    val peers = ShareBridge.peerList
     val shareCount = pending.size
 
     AlertDialog(
-        onDismissRequest = { ShareInbox.clear() },
+        onDismissRequest = onDismiss,
         title = { Text("分享到飞秋") },
         text = {
             Column(Modifier.heightIn(max = 360.dp)) {
@@ -74,8 +65,8 @@ fun SharePeerPickerDialog() {
                                     .fillMaxWidth()
                                     .clickable {
                                         val uris = pending.toList()
-                                        ShareInbox.clear()
-                                        uris.forEach { uri -> ShareBridge.sendToPeer(p, uri) }
+                                        onDismiss()
+                                        uris.forEach { uri -> onSend(p, uri) }
                                     }
                                     .padding(vertical = 12.dp),
                                 style = MaterialTheme.typography.bodyLarge
@@ -86,7 +77,7 @@ fun SharePeerPickerDialog() {
             }
         },
         confirmButton = {
-            TextButton(onClick = { ShareInbox.clear() }) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
 }
